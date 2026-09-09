@@ -39,6 +39,19 @@ REQUEST_TIMEOUT = 30
 
 HAZALS = []
 
+# ------------------------------------------------------------
+# وضعیت نیت کاربران
+#
+# اگر chat_id داخل این دیکشنری باشد یعنی کاربر یک بار
+# روی «📜 فال حافظ» زده و منتظر زدن دوباره دکمه است.
+#
+# مقدار ذخیره‌شده = message_id پیام نیت
+# ------------------------------------------------------------
+
+PENDING_INTENT = {}
+
+STATE_LOCK = threading.Lock()
+
 
 # ============================================================
 # Load Hafez JSON
@@ -555,38 +568,6 @@ def process_fortune(chat_id):
     )
 
     # --------------------------------------------------------
-    # Temporary message
-    # --------------------------------------------------------
-
-    result = send_message(
-        chat_id,
-        "🌿 نیت کنید...\n\n"
-        "در حال گرفتن فال حافظ"
-    )
-
-    temporary_message_id = None
-
-    if result and result.get("ok"):
-
-        try:
-            temporary_message_id = (
-                result["result"]["message_id"]
-            )
-        except Exception:
-            temporary_message_id = None
-
-    # Small delay so user sees the status
-    time.sleep(0.4)
-
-    # Remove temporary message
-    if temporary_message_id:
-
-        delete_message(
-            chat_id,
-            temporary_message_id
-        )
-
-    # --------------------------------------------------------
     # Send ONLY the ghazal
     # --------------------------------------------------------
 
@@ -602,6 +583,100 @@ def process_fortune(chat_id):
     send_audio(
         chat_id,
         record
+    )
+
+
+# ============================================================
+# Fortune button handler
+# ============================================================
+
+def handle_fortune_button(chat_id):
+
+    # --------------------------------------------------------
+    # First press:
+    # Show intention message and WAIT.
+    #
+    # Second press:
+    # Remove intention message and generate fortune.
+    # --------------------------------------------------------
+
+    with STATE_LOCK:
+
+        pending_message_id = PENDING_INTENT.get(
+            chat_id
+        )
+
+        # ====================================================
+        # FIRST PRESS
+        # ====================================================
+
+        if pending_message_id is None:
+
+            result = send_message(
+                chat_id,
+                "🌿 نیت کنید...\n\n"
+                "نیت خود را در دل کنید و سپس دوباره "
+                "روی «📜 فال حافظ» بزنید."
+            )
+
+            message_id = None
+
+            if result and result.get("ok"):
+
+                try:
+
+                    message_id = (
+                        result["result"]["message_id"]
+                    )
+
+                except Exception:
+
+                    message_id = None
+
+            # Even if message_id could not be obtained,
+            # keep the state so the next press generates
+            # the fortune.
+
+            PENDING_INTENT[chat_id] = message_id
+
+            print(
+                f"[INTENT] First press for chat "
+                f"{chat_id}. Waiting for second press."
+            )
+
+            return
+
+        # ====================================================
+        # SECOND PRESS
+        # ====================================================
+
+        PENDING_INTENT.pop(
+            chat_id,
+            None
+        )
+
+        print(
+            f"[INTENT] Second press for chat "
+            f"{chat_id}. Generating fortune."
+        )
+
+    # --------------------------------------------------------
+    # Delete the intention message before sending the result
+    # --------------------------------------------------------
+
+    if pending_message_id:
+
+        delete_message(
+            chat_id,
+            pending_message_id
+        )
+
+    # --------------------------------------------------------
+    # Generate fortune in background
+    # --------------------------------------------------------
+
+    process_fortune(
+        chat_id
     )
 
 
@@ -664,10 +739,16 @@ def webhook():
 
         if text.strip() == "📜 فال حافظ":
 
-            # Process in background so webhook immediately
-            # returns HTTP 200 to Soroush.
+            # ------------------------------------------------
+            # Handle first/second press.
+            #
+            # The state decision happens immediately so
+            # duplicate webhook requests cannot accidentally
+            # generate multiple fortunes.
+            # ------------------------------------------------
+
             thread = threading.Thread(
-                target=process_fortune,
+                target=handle_fortune_button,
                 args=(chat_id,),
                 daemon=True
             )
@@ -751,6 +832,3 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=port
     )
-
-
-
