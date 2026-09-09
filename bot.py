@@ -85,6 +85,103 @@ HAZALS = []
 
 
 # ==================================
+# Control Message State
+# ==================================
+
+# برای هر چت، پیام‌های کنترلی فعال را نگه می‌داریم.
+#
+# start_message_id:
+#   پیام /start کاربر
+#
+# repeat_prompt_message_id:
+#   پیام «دوباره نیت کنید...»
+#
+# fortune_message_id:
+#   پیام «📜 فال حافظ» که کاربر برای درخواست فال فرستاده
+#
+# توجه:
+# پیام شعر و صوت در این State ذخیره نمی‌شوند
+# و هیچ‌وقت حذف نخواهند شد.
+
+CHAT_CONTROL_MESSAGES = {}
+
+CHAT_CONTROL_LOCK = threading.Lock()
+
+
+def set_chat_control_message(
+    chat_id,
+    key,
+    message_id
+):
+
+    with CHAT_CONTROL_LOCK:
+
+        state = CHAT_CONTROL_MESSAGES.setdefault(
+            str(chat_id),
+            {}
+        )
+
+        state[key] = message_id
+
+
+def get_chat_control_message(
+    chat_id,
+    key
+):
+
+    with CHAT_CONTROL_LOCK:
+
+        state = CHAT_CONTROL_MESSAGES.get(
+            str(chat_id),
+            {}
+        )
+
+        return state.get(key)
+
+
+def remove_chat_control_message(
+    chat_id,
+    key
+):
+
+    with CHAT_CONTROL_LOCK:
+
+        state = CHAT_CONTROL_MESSAGES.get(
+            str(chat_id)
+        )
+
+        if not state:
+            return None
+
+        message_id = state.pop(
+            key,
+            None
+        )
+
+        if not state:
+
+            CHAT_CONTROL_MESSAGES.pop(
+                str(chat_id),
+                None
+            )
+
+        return message_id
+
+
+def clear_chat_control_message(
+    chat_id,
+    key
+):
+
+    message_id = remove_chat_control_message(
+        chat_id,
+        key
+    )
+
+    return message_id
+
+
+# ==================================
 # HTTP Session
 # ==================================
 
@@ -565,6 +662,75 @@ def splus_request(
 
 
 # ==================================
+# Delete Message
+# ==================================
+
+def delete_message(
+    chat_id,
+    message_id
+):
+
+    if not chat_id or not message_id:
+        return False
+
+    log(
+        f"[DELETE] "
+        f"chat_id={chat_id} "
+        f"message_id={message_id}"
+    )
+
+    result = splus_request(
+        "deleteMessage",
+        data={
+            "chat_id": chat_id,
+            "message_id": message_id
+        }
+    )
+
+    if result and result.get("ok"):
+
+        log(
+            f"[DELETE] Success | "
+            f"message_id={message_id}"
+        )
+
+        return True
+
+    log(
+        f"[DELETE] Failed | "
+        f"message_id={message_id}"
+    )
+
+    return False
+
+
+def delete_control_message(
+    chat_id,
+    key
+):
+
+    message_id = get_chat_control_message(
+        chat_id,
+        key
+    )
+
+    if not message_id:
+        return
+
+    success = delete_message(
+        chat_id,
+        message_id
+    )
+
+    if success:
+
+        clear_chat_control_message(
+            chat_id,
+            key
+        )
+
+
+# ==================================
 # Send Message
 # ==================================
 
@@ -777,7 +943,7 @@ def send_fortune(
         # دکمه فال دیگر فقط روی آخرین پیام شعر قرار می‌گیرد
         if index == len(chunks) - 1:
 
-            send_message(
+            result = send_message(
                 chat_id,
                 chunk,
                 reply_markup=reply_markup
@@ -785,7 +951,7 @@ def send_fortune(
 
         else:
 
-            send_message(
+            result = send_message(
                 chat_id,
                 chunk
             )
@@ -852,9 +1018,6 @@ def download_audio(audio_url):
 
     with download_lock:
 
-        # یک Thread دیگر ممکن است قبل از ما
-        # فایل را دانلود کرده باشد.
-
         cached = get_cached_audio(
             audio_url
         )
@@ -868,8 +1031,6 @@ def download_audio(audio_url):
             )
 
             return cached
-
-        # دوباره Negative Cache بررسی شود
 
         if get_negative_audio_cache(
             audio_url
@@ -1082,7 +1243,10 @@ def send_audio(
 # Process Fortune
 # ==================================
 
-def process_fortune(chat_id):
+def process_fortune(
+    chat_id,
+    fortune_message_id
+):
 
     process_started_at = time.perf_counter()
 
@@ -1135,6 +1299,44 @@ def process_fortune(chat_id):
         log(
             "[FORTUNE] "
             "Fortune text completed."
+        )
+
+        # ------------------------------
+        # Delete control messages
+        # ------------------------------
+
+        # پیام «📜 فال حافظ» کاربر
+        if fortune_message_id:
+
+            delete_message(
+                chat_id,
+                fortune_message_id
+            )
+
+        # پیام «دوباره نیت کنید...»
+        repeat_prompt_id = (
+            get_chat_control_message(
+                chat_id,
+                "repeat_prompt_message_id"
+            )
+        )
+
+        if repeat_prompt_id:
+
+            delete_message(
+                chat_id,
+                repeat_prompt_id
+            )
+
+            clear_chat_control_message(
+                chat_id,
+                "repeat_prompt_message_id"
+            )
+
+        # پیام کنترلی فال حافظ دیگر دیگر لازم نیست
+        clear_chat_control_message(
+            chat_id,
+            "fortune_message_id"
         )
 
         # ------------------------------
@@ -1237,6 +1439,10 @@ def webhook():
             ""
         )
 
+        message_id = message.get(
+            "message_id"
+        )
+
         if not chat_id:
 
             log(
@@ -1249,6 +1455,7 @@ def webhook():
         log(
             f"[MESSAGE] "
             f"chat_id={chat_id} "
+            f"message_id={message_id} "
             f"text={text!r}"
         )
 
@@ -1263,13 +1470,22 @@ def webhook():
                 "Processing /start..."
             )
 
-            send_message(
+            result = send_message(
                 chat_id,
                 "🌿 به بات فال حافظ خوش آمدید.\n\n"
                 "✨ ابتدا نیت کنید و سپس دکمه "
                 "«📜 فال حافظ» را بزنید.",
                 reply_markup=MAIN_KEYBOARD
             )
+
+            # بعد از ارسال خوش‌آمدگویی،
+            # پیام /start کاربر حذف می‌شود.
+            if message_id:
+
+                delete_message(
+                    chat_id,
+                    message_id
+                )
 
             elapsed = (
                 time.perf_counter()
@@ -1298,12 +1514,65 @@ def webhook():
                 "Repeat fortune request received."
             )
 
-            send_message(
+            # --------------------------------
+            # اول خود پیام «یک فال دیگر»
+            # حذف می‌شود.
+            # --------------------------------
+
+            if message_id:
+
+                delete_message(
+                    chat_id,
+                    message_id
+                )
+
+            # --------------------------------
+            # سپس پیام «دوباره نیت کنید...»
+            # نمایش داده می‌شود.
+            # --------------------------------
+
+            prompt_result = send_message(
                 chat_id,
                 "✨ دوباره نیت کنید و سپس دکمه "
                 "«📜 فال حافظ» را بزنید.",
                 reply_markup=MAIN_KEYBOARD
             )
+
+            if (
+                prompt_result
+                and prompt_result.get("ok")
+            ):
+
+                prompt_message = (
+                    prompt_result.get(
+                        "result"
+                    )
+                )
+
+                if isinstance(
+                    prompt_message,
+                    dict
+                ):
+
+                    prompt_message_id = (
+                        prompt_message.get(
+                            "message_id"
+                        )
+                    )
+
+                    if prompt_message_id:
+
+                        set_chat_control_message(
+                            chat_id,
+                            "repeat_prompt_message_id",
+                            prompt_message_id
+                        )
+
+                        log(
+                            f"[CONTROL] "
+                            f"repeat_prompt_message_id="
+                            f"{prompt_message_id}"
+                        )
 
             elapsed = (
                 time.perf_counter()
@@ -1333,9 +1602,24 @@ def webhook():
                 "Fortune request received."
             )
 
+            # پیام فعلی «📜 فال حافظ»
+            # پیام کنترلی همین مرحله است.
+            #
+            # بعد از ارسال شعر حذف خواهد شد.
+            if message_id:
+
+                set_chat_control_message(
+                    chat_id,
+                    "fortune_message_id",
+                    message_id
+                )
+
             thread = threading.Thread(
                 target=process_fortune,
-                args=(chat_id,),
+                args=(
+                    chat_id,
+                    message_id
+                ),
                 daemon=True,
                 name=f"fortune-{chat_id}"
             )
@@ -1473,4 +1757,4 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=port
-    )
+        )
