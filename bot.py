@@ -5,6 +5,7 @@ import time
 import threading
 import re
 from collections import OrderedDict
+from urllib.parse import urljoin
 
 import requests
 from flask import Flask, request
@@ -36,7 +37,10 @@ MAX_MESSAGE_LENGTH = 4000
 CONNECT_TIMEOUT = 5
 READ_TIMEOUT = 15
 
-REQUEST_TIMEOUT = (CONNECT_TIMEOUT, READ_TIMEOUT)
+REQUEST_TIMEOUT = (
+    CONNECT_TIMEOUT,
+    READ_TIMEOUT
+)
 
 
 # ----------------------------------
@@ -46,8 +50,11 @@ REQUEST_TIMEOUT = (CONNECT_TIMEOUT, READ_TIMEOUT)
 AUDIO_CACHE_MAX_ITEMS = 5
 AUDIO_CACHE_MAX_BYTES = 50 * 1024 * 1024
 
-# مدت نگهداری خطاهای 404 صوت
+# مدت نگهداری خطاهای صوت
 AUDIO_NEGATIVE_CACHE_TTL = 10 * 60
+
+# مدت نگهداری URL صوتی‌ای که از صفحه گنجور پیدا شده
+AUDIO_URL_CACHE_TTL = 60 * 60
 
 
 # ==================================
@@ -55,10 +62,6 @@ AUDIO_NEGATIVE_CACHE_TTL = 10 * 60
 # ==================================
 
 def log(message):
-    """
-    لاگ دقیق برای Render:
-    PID + Thread + زمان نسبی + flush فوری
-    """
 
     timestamp = time.strftime(
         "%Y-%m-%d %H:%M:%S"
@@ -87,21 +90,6 @@ HAZALS = []
 # ==================================
 # Control Message State
 # ==================================
-
-# برای هر چت، پیام‌های کنترلی فعال را نگه می‌داریم.
-#
-# start_message_id:
-#   پیام /start کاربر
-#
-# repeat_prompt_message_id:
-#   پیام «دوباره نیت کنید...»
-#
-# fortune_message_id:
-#   پیام «📜 فال حافظ» که کاربر برای درخواست فال فرستاده
-#
-# توجه:
-# پیام شعر و صوت در این State ذخیره نمی‌شوند
-# و هیچ‌وقت حذف نخواهند شد.
 
 CHAT_CONTROL_MESSAGES = {}
 
@@ -173,12 +161,10 @@ def clear_chat_control_message(
     key
 ):
 
-    message_id = remove_chat_control_message(
+    return remove_chat_control_message(
         chat_id,
         key
     )
-
-    return message_id
 
 
 # ==================================
@@ -189,10 +175,6 @@ _thread_local = threading.local()
 
 
 def get_session():
-    """
-    برای هر Thread یک requests.Session نگه می‌داریم
-    تا Connection Pool قابل استفاده مجدد باشد.
-    """
 
     session = getattr(
         _thread_local,
@@ -205,7 +187,10 @@ def get_session():
         session = requests.Session()
 
         session.headers.update({
-            "User-Agent": "HafezBot/1.0"
+            "User-Agent": (
+                "Mozilla/5.0 "
+                "(compatible; HafezBot/1.0)"
+            )
         })
 
         _thread_local.session = session
@@ -227,21 +212,31 @@ _AUDIO_CACHE_BYTES = 0
 
 _AUDIO_CACHE_LOCK = threading.Lock()
 
+
 _AUDIO_DOWNLOAD_LOCKS = {}
 
 _AUDIO_DOWNLOAD_LOCKS_GUARD = threading.Lock()
+
 
 _AUDIO_NEGATIVE_CACHE = {}
 
 _AUDIO_NEGATIVE_CACHE_LOCK = threading.Lock()
 
 
+# ----------------------------------
+# Resolved Audio URL Cache
+# ----------------------------------
+
+_AUDIO_URL_CACHE = {}
+
+_AUDIO_URL_CACHE_LOCK = threading.Lock()
+
+_AUDIO_URL_DOWNLOAD_LOCKS = {}
+
+_AUDIO_URL_DOWNLOAD_LOCKS_GUARD = threading.Lock()
+
+
 def get_audio_download_lock(audio_url):
-    """
-    برای هر URL یک Lock ایجاد می‌کند تا اگر
-    چند درخواست همزمان برای یک فایل صوتی آمد،
-    فایل چند بار دانلود نشود.
-    """
 
     with _AUDIO_DOWNLOAD_LOCKS_GUARD:
 
@@ -255,6 +250,25 @@ def get_audio_download_lock(audio_url):
 
             _AUDIO_DOWNLOAD_LOCKS[
                 audio_url
+            ] = lock
+
+        return lock
+
+
+def get_audio_url_resolve_lock(source_url):
+
+    with _AUDIO_URL_DOWNLOAD_LOCKS_GUARD:
+
+        lock = _AUDIO_URL_DOWNLOAD_LOCKS.get(
+            source_url
+        )
+
+        if lock is None:
+
+            lock = threading.Lock()
+
+            _AUDIO_URL_DOWNLOAD_LOCKS[
+                source_url
             ] = lock
 
         return lock
@@ -274,7 +288,6 @@ def get_cached_audio(audio_url):
         if item is None:
             return None
 
-        # LRU
         _AUDIO_CACHE.move_to_end(
             audio_url
         )
@@ -292,12 +305,14 @@ def cache_audio(
     if not audio_url or not audio_data:
         return
 
-    data_size = len(audio_data)
+    data_size = len(
+        audio_data
+    )
 
     if data_size > AUDIO_CACHE_MAX_BYTES:
 
         log(
-            f"[AUDIO CACHE] "
+            "[AUDIO CACHE] "
             f"File too large to cache: "
             f"{data_size} bytes"
         )
@@ -324,7 +339,8 @@ def cache_audio(
         while (
             len(_AUDIO_CACHE)
             > AUDIO_CACHE_MAX_ITEMS
-            or _AUDIO_CACHE_BYTES
+            or
+            _AUDIO_CACHE_BYTES
             > AUDIO_CACHE_MAX_BYTES
         ):
 
@@ -339,7 +355,7 @@ def cache_audio(
             )
 
         log(
-            f"[AUDIO CACHE] Stored: "
+            "[AUDIO CACHE] Stored: "
             f"{data_size} bytes | "
             f"items={len(_AUDIO_CACHE)} | "
             f"total={_AUDIO_CACHE_BYTES} bytes"
@@ -396,9 +412,70 @@ def set_negative_audio_cache(
         ] = expires_at
 
     log(
-        f"[AUDIO CACHE] "
-        f"Negative cache stored "
+        "[AUDIO CACHE] "
+        "Negative cache stored "
         f"for {AUDIO_NEGATIVE_CACHE_TTL}s"
+    )
+
+
+# ==================================
+# Resolved Audio URL Cache Functions
+# ==================================
+
+def get_cached_audio_url(source_url):
+
+    if not source_url:
+        return None
+
+    now = time.monotonic()
+
+    with _AUDIO_URL_CACHE_LOCK:
+
+        item = _AUDIO_URL_CACHE.get(
+            source_url
+        )
+
+        if not item:
+            return None
+
+        audio_url, expires_at = item
+
+        if now >= expires_at:
+
+            del _AUDIO_URL_CACHE[
+                source_url
+            ]
+
+            return None
+
+        return audio_url
+
+
+def cache_audio_url(
+    source_url,
+    audio_url
+):
+
+    if not source_url or not audio_url:
+        return
+
+    expires_at = (
+        time.monotonic()
+        + AUDIO_URL_CACHE_TTL
+    )
+
+    with _AUDIO_URL_CACHE_LOCK:
+
+        _AUDIO_URL_CACHE[
+            source_url
+        ] = (
+            audio_url,
+            expires_at
+        )
+
+    log(
+        "[AUDIO URL CACHE] Stored: "
+        f"{audio_url}"
     )
 
 
@@ -419,10 +496,6 @@ MAIN_KEYBOARD = {
     "is_persistent": True
 }
 
-
-# ----------------------------------
-# Repeat Fortune Keyboard
-# ----------------------------------
 
 REPEAT_FORTUNE_KEYBOARD = {
     "keyboard": [
@@ -529,9 +602,30 @@ def load_data():
 
     HAZALS = loaded
 
+    audio_count = sum(
+        1
+        for item in HAZALS
+        if item.get("audio")
+    )
+
+    missing_audio_count = (
+        len(HAZALS)
+        - audio_count
+    )
+
     log(
         f"[DATA] Loaded "
         f"{len(HAZALS)} ghazals."
+    )
+
+    log(
+        f"[DATA] Audio field present: "
+        f"{audio_count}"
+    )
+
+    log(
+        f"[DATA] Audio field missing: "
+        f"{missing_audio_count}"
     )
 
 
@@ -550,8 +644,7 @@ def splus_request(
     started_at = time.perf_counter()
 
     log(
-        f"[SPLUS START] "
-        f"{method}"
+        f"[SPLUS START] {method}"
     )
 
     try:
@@ -807,7 +900,9 @@ def split_message(
 
     if remaining:
 
-        chunks.append(remaining)
+        chunks.append(
+            remaining
+        )
 
     return chunks
 
@@ -940,10 +1035,9 @@ def send_fortune(
 
     for index, chunk in enumerate(chunks):
 
-        # دکمه فال دیگر فقط روی آخرین پیام شعر قرار می‌گیرد
         if index == len(chunks) - 1:
 
-            result = send_message(
+            send_message(
                 chat_id,
                 chunk,
                 reply_markup=reply_markup
@@ -951,7 +1045,7 @@ def send_fortune(
 
         else:
 
-            result = send_message(
+            send_message(
                 chat_id,
                 chunk
             )
@@ -962,10 +1056,451 @@ def send_fortune(
 
 
 # ==================================
+# Audio URL Extraction
+# ==================================
+
+def extract_audio_urls_from_page(
+    html,
+    source_url
+):
+
+    if not html:
+        return []
+
+    found = []
+
+    # ----------------------------------
+    # Direct absolute URLs
+    # ----------------------------------
+
+    absolute_patterns = [
+        r'https?://i\.ganjoor\.net/[^"\'>\s]+?\.(?:ogg|mp3)(?:\?[^"\'>\s]*)?',
+        r'https?://[^"\'>\s]+?\.(?:ogg|mp3)(?:\?[^"\'>\s]*)?'
+    ]
+
+    for pattern in absolute_patterns:
+
+        matches = re.findall(
+            pattern,
+            html,
+            flags=re.IGNORECASE
+        )
+
+        for url in matches:
+
+            url = (
+                url
+                .replace(
+                    "&amp;",
+                    "&"
+                )
+                .replace(
+                    "\\/",
+                    "/"
+                )
+            )
+
+            if url not in found:
+
+                found.append(url)
+
+    # ----------------------------------
+    # Relative URLs
+    # ----------------------------------
+
+    relative_pattern = (
+        r'(?:"|\'|=)'
+        r'([^"\'\s>]+?\.(?:ogg|mp3)'
+        r'(?:\?[^"\'\s>]*)?)'
+    )
+
+    matches = re.findall(
+        relative_pattern,
+        html,
+        flags=re.IGNORECASE
+    )
+
+    for url in matches:
+
+        url = (
+            url
+            .replace(
+                "&amp;",
+                "&"
+            )
+            .replace(
+                "\\/",
+                "/"
+            )
+        )
+
+        absolute = urljoin(
+            source_url,
+            url
+        )
+
+        if absolute not in found:
+
+            found.append(
+                absolute
+            )
+
+    return found
+
+
+# ==================================
+# Resolve Audio From Ganjoor Page
+# ==================================
+
+def resolve_audio_from_source(
+    source_url
+):
+
+    if not source_url:
+        return None
+
+    cached_url = get_cached_audio_url(
+        source_url
+    )
+
+    if cached_url:
+
+        log(
+            "[AUDIO RESOLVE] "
+            f"CACHE HIT: {cached_url}"
+        )
+
+        return cached_url
+
+    resolve_lock = get_audio_url_resolve_lock(
+        source_url
+    )
+
+    with resolve_lock:
+
+        cached_url = get_cached_audio_url(
+            source_url
+        )
+
+        if cached_url:
+
+            return cached_url
+
+        log(
+            "[AUDIO RESOLVE] "
+            f"Opening Ganjoor source: "
+            f"{source_url}"
+        )
+
+        started_at = time.perf_counter()
+
+        try:
+
+            session = get_session()
+
+            response = session.get(
+                source_url,
+                timeout=REQUEST_TIMEOUT
+            )
+
+            elapsed = (
+                time.perf_counter()
+                - started_at
+            )
+
+            if response.status_code != 200:
+
+                log(
+                    "[AUDIO RESOLVE] "
+                    f"Source HTTP "
+                    f"{response.status_code} | "
+                    f"{elapsed:.3f}s"
+                )
+
+                return None
+
+            html = response.text
+
+            urls = extract_audio_urls_from_page(
+                html,
+                source_url
+            )
+
+            log(
+                "[AUDIO RESOLVE] "
+                f"Found {len(urls)} "
+                f"audio URL(s) | "
+                f"{elapsed:.3f}s"
+            )
+
+            if not urls:
+
+                log(
+                    "[AUDIO RESOLVE] "
+                    "No audio URL found."
+                )
+
+                return None
+
+            # ----------------------------------
+            # اول OGG
+            # ----------------------------------
+
+            ogg_urls = [
+                url
+                for url in urls
+                if ".ogg" in url.lower()
+            ]
+
+            # ----------------------------------
+            # اگر OGG نبود MP3
+            # ----------------------------------
+
+            candidates = (
+                ogg_urls
+                if ogg_urls
+                else urls
+            )
+
+            # ----------------------------------
+            # فقط اولین URL واقعی را انتخاب می‌کنیم
+            # ----------------------------------
+
+            selected = candidates[0]
+
+            cache_audio_url(
+                source_url,
+                selected
+            )
+
+            log(
+                "[AUDIO RESOLVE] "
+                f"Selected: {selected}"
+            )
+
+            return selected
+
+        except requests.Timeout as e:
+
+            elapsed = (
+                time.perf_counter()
+                - started_at
+            )
+
+            log(
+                "[AUDIO RESOLVE TIMEOUT] "
+                f"{elapsed:.3f}s | {e}"
+            )
+
+            return None
+
+        except requests.RequestException as e:
+
+            elapsed = (
+                time.perf_counter()
+                - started_at
+            )
+
+            log(
+                "[AUDIO RESOLVE ERROR] "
+                f"{elapsed:.3f}s | {e}"
+            )
+
+            return None
+
+        except Exception as e:
+
+            elapsed = (
+                time.perf_counter()
+                - started_at
+            )
+
+            log(
+                "[AUDIO RESOLVE ERROR] "
+                f"{elapsed:.3f}s | {e}"
+            )
+
+            return None
+
+
+# ==================================
+# Check Audio URL
+# ==================================
+
+def check_audio_url(
+    audio_url
+):
+
+    if not audio_url:
+        return False
+
+    try:
+
+        session = get_session()
+
+        started_at = time.perf_counter()
+
+        response = session.get(
+            audio_url,
+            timeout=REQUEST_TIMEOUT,
+            stream=True
+        )
+
+        elapsed = (
+            time.perf_counter()
+            - started_at
+        )
+
+        status = response.status_code
+
+        response.close()
+
+        log(
+            "[AUDIO CHECK] "
+            f"HTTP {status} | "
+            f"{elapsed:.3f}s | "
+            f"{audio_url}"
+        )
+
+        return status == 200
+
+    except requests.Timeout as e:
+
+        log(
+            f"[AUDIO CHECK TIMEOUT] "
+            f"{audio_url} | {e}"
+        )
+
+        return False
+
+    except requests.RequestException as e:
+
+        log(
+            f"[AUDIO CHECK ERROR] "
+            f"{audio_url} | {e}"
+        )
+
+        return False
+
+    except Exception as e:
+
+        log(
+            f"[AUDIO CHECK ERROR] "
+            f"{audio_url} | {e}"
+        )
+
+        return False
+
+
+# ==================================
+# Resolve Final Audio URL
+# ==================================
+
+def resolve_final_audio_url(
+    record
+):
+
+    json_audio_url = record.get(
+        "audio"
+    )
+
+    source_url = record.get(
+        "source"
+    )
+
+    ghazal_number = get_ghazal_number(
+        record
+    )
+
+    # ----------------------------------
+    # 1. Audio موجود در JSON
+    # ----------------------------------
+
+    if json_audio_url:
+
+        log(
+            "[AUDIO] JSON source: "
+            f"{json_audio_url}"
+        )
+
+        # اول cache فایل صوتی
+        if get_cached_audio(
+            json_audio_url
+        ) is not None:
+
+            log(
+                "[AUDIO] "
+                "JSON audio already cached."
+            )
+
+            return json_audio_url
+
+        # بررسی زنده URL
+        if check_audio_url(
+            json_audio_url
+        ):
+
+            log(
+                "[AUDIO] "
+                "JSON audio URL is valid."
+            )
+
+            return json_audio_url
+
+        log(
+            "[AUDIO] "
+            "JSON audio URL unavailable. "
+            "Trying Ganjoor source fallback..."
+        )
+
+        # URL خراب را منفی cache می‌کنیم
+        set_negative_audio_cache(
+            json_audio_url
+        )
+
+    else:
+
+        log(
+            "[AUDIO] "
+            f"No Audio field for ghazal "
+            f"#{ghazal_number}. "
+            "Trying Ganjoor source fallback..."
+        )
+
+    # ----------------------------------
+    # 2. Fallback به صفحه گنجور
+    # ----------------------------------
+
+    fallback_url = resolve_audio_from_source(
+        source_url
+    )
+
+    if fallback_url:
+
+        log(
+            "[AUDIO] "
+            f"Fallback audio resolved: "
+            f"{fallback_url}"
+        )
+
+        return fallback_url
+
+    log(
+        "[AUDIO] "
+        f"No usable audio found for ghazal "
+        f"#{ghazal_number}"
+    )
+
+    return None
+
+
+# ==================================
 # Download Audio
 # ==================================
 
-def download_audio(audio_url):
+def download_audio(
+    audio_url
+):
 
     if not audio_url:
         return None
@@ -1001,7 +1536,7 @@ def download_audio(audio_url):
     ):
 
         log(
-            f"[AUDIO CACHE] "
+            "[AUDIO CACHE] "
             f"NEGATIVE HIT: "
             f"{audio_url}"
         )
@@ -1025,7 +1560,7 @@ def download_audio(audio_url):
         if cached is not None:
 
             log(
-                f"[AUDIO CACHE] "
+                "[AUDIO CACHE] "
                 f"HIT AFTER LOCK: "
                 f"{audio_url}"
             )
@@ -1037,7 +1572,7 @@ def download_audio(audio_url):
         ):
 
             log(
-                f"[AUDIO CACHE] "
+                "[AUDIO CACHE] "
                 f"NEGATIVE HIT AFTER LOCK: "
                 f"{audio_url}"
             )
@@ -1045,8 +1580,8 @@ def download_audio(audio_url):
             return None
 
         log(
-            f"[AUDIO] Downloading ONLY "
-            f"user's source: {audio_url}"
+            "[AUDIO] Downloading: "
+            f"{audio_url}"
         )
 
         started_at = time.perf_counter()
@@ -1068,8 +1603,9 @@ def download_audio(audio_url):
             if response.status_code == 404:
 
                 log(
-                    f"[AUDIO] HTTP 404 | "
-                    f"{elapsed:.3f}s"
+                    "[AUDIO] HTTP 404 | "
+                    f"{elapsed:.3f}s | "
+                    f"{audio_url}"
                 )
 
                 set_negative_audio_cache(
@@ -1085,15 +1621,15 @@ def download_audio(audio_url):
             if not content:
 
                 log(
-                    f"[AUDIO] "
-                    f"Empty audio response | "
+                    "[AUDIO] "
+                    "Empty audio response | "
                     f"{elapsed:.3f}s"
                 )
 
                 return None
 
             log(
-                f"[AUDIO] Downloaded "
+                "[AUDIO] Downloaded "
                 f"{len(content)} bytes | "
                 f"{elapsed:.3f}s"
             )
@@ -1113,9 +1649,8 @@ def download_audio(audio_url):
             )
 
             log(
-                f"[AUDIO TIMEOUT] "
-                f"{elapsed:.3f}s | "
-                f"{e}"
+                "[AUDIO TIMEOUT] "
+                f"{elapsed:.3f}s | {e}"
             )
 
             return None
@@ -1128,9 +1663,8 @@ def download_audio(audio_url):
             )
 
             log(
-                f"[AUDIO ERROR] "
-                f"{elapsed:.3f}s | "
-                f"{e}"
+                "[AUDIO ERROR] "
+                f"{elapsed:.3f}s | {e}"
             )
 
             return None
@@ -1143,9 +1677,8 @@ def download_audio(audio_url):
             )
 
             log(
-                f"[AUDIO ERROR] "
-                f"{elapsed:.3f}s | "
-                f"{e}"
+                "[AUDIO ERROR] "
+                f"{elapsed:.3f}s | {e}"
             )
 
             return None
@@ -1160,24 +1693,32 @@ def send_audio(
     record
 ):
 
-    audio_url = record.get(
-        "audio"
+    ghazal_number = get_ghazal_number(
+        record
+    )
+
+    log(
+        "[AUDIO] Resolving audio for "
+        f"ghazal #{ghazal_number}"
+    )
+
+    audio_url = resolve_final_audio_url(
+        record
     )
 
     if not audio_url:
 
         log(
-            f"[AUDIO] No audio in "
-            f"user's source for ghazal "
-            f"#{get_ghazal_number(record)}"
+            "[AUDIO] Audio unavailable. "
+            "Nothing will be sent."
         )
 
         return
 
     log(
-        f"[AUDIO] Ghazal "
-        f"#{get_ghazal_number(record)} "
-        f"source={audio_url}"
+        "[AUDIO] Final source for ghazal "
+        f"#{ghazal_number}: "
+        f"{audio_url}"
     )
 
     audio_data = download_audio(
@@ -1187,23 +1728,41 @@ def send_audio(
     if not audio_data:
 
         log(
-            "[AUDIO] Audio unavailable. "
+            "[AUDIO] Audio download failed. "
             "Nothing will be sent."
         )
 
         return
 
+    # ----------------------------------
+    # Extension
+    # ----------------------------------
+
+    lower_url = audio_url.lower()
+
+    if ".mp3" in lower_url:
+
+        extension = "mp3"
+
+        mime_type = "audio/mpeg"
+
+    else:
+
+        extension = "ogg"
+
+        mime_type = "audio/ogg"
+
     filename = (
         f"hafez_"
-        f"{get_ghazal_number(record)}"
-        f".ogg"
+        f"{ghazal_number}."
+        f"{extension}"
     )
 
     files = {
         "voice": (
             filename,
             audio_data,
-            "audio/ogg"
+            mime_type
         )
     }
 
@@ -1220,17 +1779,15 @@ def send_audio(
     if result and result.get("ok"):
 
         log(
-            f"[AUDIO] Sent successfully "
-            f"for ghazal "
-            f"#{get_ghazal_number(record)}"
+            "[AUDIO] Sent successfully "
+            f"for ghazal #{ghazal_number}"
         )
 
     else:
 
         log(
-            f"[AUDIO] Failed to send "
-            f"ghazal "
-            f"#{get_ghazal_number(record)}"
+            "[AUDIO] Failed to send "
+            f"ghazal #{ghazal_number}"
         )
 
 
@@ -1300,7 +1857,6 @@ def process_fortune(
         # Delete control messages
         # ------------------------------
 
-        # پیام «📜 فال حافظ» کاربر
         if fortune_message_id:
 
             delete_message(
@@ -1308,7 +1864,6 @@ def process_fortune(
                 fortune_message_id
             )
 
-        # پیام «دوباره نیت کنید...»
         repeat_prompt_id = (
             get_chat_control_message(
                 chat_id,
@@ -1328,7 +1883,6 @@ def process_fortune(
                 "repeat_prompt_message_id"
             )
 
-        # پیام کنترلی فال حافظ دیگر دیگر لازم نیست
         clear_chat_control_message(
             chat_id,
             "fortune_message_id"
@@ -1465,7 +2019,7 @@ def webhook():
                 "Processing /start..."
             )
 
-            result = send_message(
+            send_message(
                 chat_id,
                 "🌿 به بات فال حافظ خوش آمدید.\n\n"
                 "✨ ابتدا نیت کنید و سپس دکمه "
@@ -1473,8 +2027,6 @@ def webhook():
                 reply_markup=MAIN_KEYBOARD
             )
 
-            # بعد از ارسال خوش‌آمدگویی،
-            # پیام /start کاربر حذف می‌شود.
             if message_id:
 
                 delete_message(
@@ -1488,8 +2040,8 @@ def webhook():
             )
 
             log(
-                f"[WEBHOOK END] "
-                f"/start completed in "
+                "[WEBHOOK END] "
+                "/start completed in "
                 f"{elapsed:.3f}s"
             )
 
@@ -1509,22 +2061,12 @@ def webhook():
                 "Repeat fortune request received."
             )
 
-            # --------------------------------
-            # اول خود پیام «یک فال دیگر»
-            # حذف می‌شود.
-            # --------------------------------
-
             if message_id:
 
                 delete_message(
                     chat_id,
                     message_id
                 )
-
-            # --------------------------------
-            # سپس پیام «دوباره نیت کنید...»
-            # نمایش داده می‌شود.
-            # --------------------------------
 
             prompt_result = send_message(
                 chat_id,
@@ -1564,7 +2106,7 @@ def webhook():
                         )
 
                         log(
-                            f"[CONTROL] "
+                            "[CONTROL] "
                             f"repeat_prompt_message_id="
                             f"{prompt_message_id}"
                         )
@@ -1575,10 +2117,9 @@ def webhook():
             )
 
             log(
-                f"[WEBHOOK END] "
-                f"Repeat fortune prompt "
-                f"completed in "
-                f"{elapsed:.3f}s"
+                "[WEBHOOK END] "
+                "Repeat fortune prompt "
+                f"completed in {elapsed:.3f}s"
             )
 
             return "OK"
@@ -1597,10 +2138,6 @@ def webhook():
                 "Fortune request received."
             )
 
-            # پیام فعلی «📜 فال حافظ»
-            # پیام کنترلی همین مرحله است.
-            #
-            # بعد از ارسال شعر حذف خواهد شد.
             if message_id:
 
                 set_chat_control_message(
@@ -1620,16 +2157,16 @@ def webhook():
             )
 
             log(
-                f"[WEBHOOK] "
-                f"Starting fortune thread "
+                "[WEBHOOK] "
+                "Starting fortune thread "
                 f"name={thread.name}"
             )
 
             thread.start()
 
             log(
-                f"[WEBHOOK] "
-                f"Fortune thread started | "
+                "[WEBHOOK] "
+                "Fortune thread started | "
                 f"alive={thread.is_alive()}"
             )
 
@@ -1639,9 +2176,8 @@ def webhook():
         )
 
         log(
-            f"[WEBHOOK END] "
-            f"completed in "
-            f"{elapsed:.3f}s"
+            "[WEBHOOK END] "
+            f"completed in {elapsed:.3f}s"
         )
 
         return "OK"
@@ -1658,7 +2194,7 @@ def webhook():
         )
 
         log(
-            f"[WEBHOOK END] "
+            "[WEBHOOK END] "
             f"with error after "
             f"{elapsed:.3f}s"
         )
@@ -1752,4 +2288,4 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=port
-)
+    )
