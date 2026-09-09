@@ -57,22 +57,6 @@ def load_data():
 
     loaded = []
 
-    # --------------------------------------------------------
-    # The user's JSON is an array of objects.
-    # Each object contains one record such as:
-    #
-    # {
-    #     "2130": {
-    #         "Audio": "...",
-    #         "Author": "حافظ",
-    #         "Book": "غزلیات حافظ",
-    #         "Poem": "...",
-    #         "Source": "...",
-    #         "Title": "غزل شمارهٔ ۱"
-    #     }
-    # }
-    # --------------------------------------------------------
-
     for item in raw_data:
 
         if not isinstance(item, dict):
@@ -83,32 +67,44 @@ def load_data():
             if not isinstance(record, dict):
                 continue
 
-            poem = str(record.get("Poem") or "").strip()
+            poem = str(
+                record.get("Poem") or ""
+            ).strip()
 
             if not poem:
                 continue
 
-            title = str(record.get("Title") or "").strip()
+            title = str(
+                record.get("Title") or ""
+            ).strip()
 
-            source = str(record.get("Source") or "").strip()
+            source = str(
+                record.get("Source") or ""
+            ).strip()
 
-            # IMPORTANT:
-            # Audio is taken ONLY from the user's JSON.
-            # No fallback URL is generated.
             audio = record.get("Audio")
 
             if isinstance(audio, str):
+
                 audio = audio.strip()
 
                 if not audio:
                     audio = None
+
             else:
+
                 audio = None
 
             loaded.append({
                 "record_id": str(record_id),
-                "author": record.get("Author", "حافظ"),
-                "book": record.get("Book", "غزلیات حافظ"),
+                "author": record.get(
+                    "Author",
+                    "حافظ"
+                ),
+                "book": record.get(
+                    "Book",
+                    "غزلیات حافظ"
+                ),
                 "poem": poem,
                 "source": source,
                 "title": title,
@@ -117,14 +113,20 @@ def load_data():
 
     HAZALS = loaded
 
-    print(f"[DATA] Loaded {len(HAZALS)} ghazals.")
+    print(
+        f"[DATA] Loaded {len(HAZALS)} ghazals."
+    )
 
 
 # ============================================================
 # Soroush API helper
 # ============================================================
 
-def splus_request(method, data=None, files=None):
+def splus_request(
+    method,
+    data=None,
+    files=None
+):
 
     url = f"{API}/{method}"
 
@@ -160,7 +162,10 @@ def splus_request(method, data=None, files=None):
 # Send text message
 # ============================================================
 
-def send_message(chat_id, text):
+def send_message(
+    chat_id,
+    text
+):
 
     if not text:
         return None
@@ -181,7 +186,10 @@ def send_message(chat_id, text):
 # Delete message
 # ============================================================
 
-def delete_message(chat_id, message_id):
+def delete_message(
+    chat_id,
+    message_id
+):
 
     if not message_id:
         return
@@ -199,7 +207,10 @@ def delete_message(chat_id, message_id):
 # Split long messages
 # ============================================================
 
-def split_message(text, max_length=MAX_MESSAGE_LENGTH):
+def split_message(
+    text,
+    max_length=MAX_MESSAGE_LENGTH
+):
 
     if len(text) <= max_length:
         return [text]
@@ -217,6 +228,7 @@ def split_message(text, max_length=MAX_MESSAGE_LENGTH):
         )
 
         if cut < 1000:
+
             cut = remaining.rfind(
                 " ",
                 0,
@@ -244,16 +256,15 @@ def split_message(text, max_length=MAX_MESSAGE_LENGTH):
 
 def get_ghazal_number(record):
 
-    title = record.get("title", "")
+    title = record.get(
+        "title",
+        ""
+    )
 
-    # Example:
-    # غزل شمارهٔ 349
-    # غزل شمارهٔ ۱
-    #
-    # We prefer Source because it contains sh349,
-    # but Title is also kept as fallback.
-
-    source = record.get("source", "")
+    source = record.get(
+        "source",
+        ""
+    )
 
     if source:
 
@@ -277,7 +288,10 @@ def get_ghazal_number(record):
     if match:
         return match.group(1)
 
-    return record.get("record_id", "نامشخص")
+    return record.get(
+        "record_id",
+        "نامشخص"
+    )
 
 
 # ============================================================
@@ -289,11 +303,16 @@ def clean_poem(poem):
     if not poem:
         return ""
 
-    # Normalize line endings
-    poem = poem.replace("\r\n", "\n")
-    poem = poem.replace("\r", "\n")
+    poem = poem.replace(
+        "\r\n",
+        "\n"
+    )
 
-    # Remove excessive blank lines at beginning/end
+    poem = poem.replace(
+        "\r",
+        "\n"
+    )
+
     poem = poem.strip()
 
     return poem
@@ -305,26 +324,16 @@ def clean_poem(poem):
 
 def build_fortune(record):
 
-    number = get_ghazal_number(record)
-
-    poem = clean_poem(
-        record.get("poem", "")
+    number = get_ghazal_number(
+        record
     )
 
-    # --------------------------------------------------------
-    # VERY IMPORTANT:
-    #
-    # Only the poem is returned here.
-    #
-    # No:
-    # - hafez.top
-    # - interpretation
-    # - extra explanation
-    # - menu
-    # - previous/next ghazal
-    # - support message
-    # - duplicated poem
-    # --------------------------------------------------------
+    poem = clean_poem(
+        record.get(
+            "poem",
+            ""
+        )
+    )
 
     text = (
         f"فال حافظ\n"
@@ -342,9 +351,14 @@ def build_fortune(record):
 # Send ghazal
 # ============================================================
 
-def send_fortune(chat_id, record):
+def send_fortune(
+    chat_id,
+    record
+):
 
-    fortune_text = build_fortune(record)
+    fortune_text = build_fortune(
+        record
+    )
 
     print(
         f"[FORTUNE] "
@@ -374,16 +388,20 @@ def send_fortune(chat_id, record):
             chunk
         )
 
-        # Small delay to preserve order
         if len(chunks) > 1:
-            time.sleep(0.15)
+
+            time.sleep(
+                0.15
+            )
 
 
 # ============================================================
 # Download user's own audio
 # ============================================================
 
-def download_audio(audio_url):
+def download_audio(
+    audio_url
+):
 
     if not audio_url:
         return None
@@ -405,9 +423,11 @@ def download_audio(audio_url):
         content = response.content
 
         if not content:
+
             print(
                 "[AUDIO] Empty audio response."
             )
+
             return None
 
         print(
@@ -431,18 +451,14 @@ def download_audio(audio_url):
 # Send audio
 # ============================================================
 
-def send_audio(chat_id, record):
+def send_audio(
+    chat_id,
+    record
+):
 
-    # ========================================================
-    # CRITICAL RULE:
-    #
-    # Audio MUST come directly from Audio field
-    # in HafezFilebot.json.
-    #
-    # There is NO fallback.
-    # ========================================================
-
-    audio_url = record.get("audio")
+    audio_url = record.get(
+        "audio"
+    )
 
     if not audio_url:
 
@@ -477,16 +493,6 @@ def send_audio(chat_id, record):
         f".mp3"
     )
 
-    # --------------------------------------------------------
-    # Soroush sendAudio requires an upload.
-    #
-    # Even if source is .ogg, we DO NOT invent another
-    # source or use hafez.top.
-    #
-    # We simply attempt to send the bytes from the user's
-    # Audio URL.
-    # --------------------------------------------------------
-
     files = {
         "audio": (
             filename,
@@ -510,7 +516,9 @@ def send_audio(chat_id, record):
         files=files
     )
 
-    if result and result.get("ok"):
+    if result and result.get(
+        "ok"
+    ):
 
         print(
             f"[AUDIO] Sent successfully "
@@ -529,7 +537,9 @@ def send_audio(chat_id, record):
 # Fortune process
 # ============================================================
 
-def process_fortune(chat_id):
+def process_fortune(
+    chat_id
+):
 
     if not HAZALS:
 
@@ -539,10 +549,6 @@ def process_fortune(chat_id):
         )
 
         return
-
-    # --------------------------------------------------------
-    # Select one ghazal randomly
-    # --------------------------------------------------------
 
     record = random.choice(
         HAZALS
@@ -554,10 +560,6 @@ def process_fortune(chat_id):
         f"record={record.get('record_id')}"
     )
 
-    # --------------------------------------------------------
-    # Temporary message
-    # --------------------------------------------------------
-
     result = send_message(
         chat_id,
         "🌿 نیت کنید...\n\n"
@@ -566,19 +568,24 @@ def process_fortune(chat_id):
 
     temporary_message_id = None
 
-    if result and result.get("ok"):
+    if result and result.get(
+        "ok"
+    ):
 
         try:
+
             temporary_message_id = (
                 result["result"]["message_id"]
             )
+
         except Exception:
+
             temporary_message_id = None
 
-    # Small delay so user sees the status
-    time.sleep(0.4)
+    time.sleep(
+        0.4
+    )
 
-    # Remove temporary message
     if temporary_message_id:
 
         delete_message(
@@ -586,18 +593,10 @@ def process_fortune(chat_id):
             temporary_message_id
         )
 
-    # --------------------------------------------------------
-    # Send ONLY the ghazal
-    # --------------------------------------------------------
-
     send_fortune(
         chat_id,
         record
     )
-
-    # --------------------------------------------------------
-    # Send audio ONLY if Audio exists in JSON
-    # --------------------------------------------------------
 
     send_audio(
         chat_id,
@@ -658,9 +657,9 @@ def webhook():
             f"text={text!r}"
         )
 
-        # ----------------------------------------------------
+        # ====================================================
         # /start
-        # ----------------------------------------------------
+        # ====================================================
 
         if text.strip() == "/start":
 
@@ -672,22 +671,15 @@ def webhook():
 
             return "OK"
 
-        # ----------------------------------------------------
+        # ====================================================
         # Fortune command
-        #
-        # Both forms are accepted:
-        #
-        # فال حافظ
-        # 📜 فال حافظ
-        # ----------------------------------------------------
+        # ====================================================
 
         if text.strip() in (
             "فال حافظ",
             "📜 فال حافظ"
         ):
 
-            # Process in background so webhook immediately
-            # returns HTTP 200 to Soroush.
             thread = threading.Thread(
                 target=process_fortune,
                 args=(chat_id,),
@@ -774,27 +766,5 @@ if __name__ == "__main__":
         port=port
     )
 
-
-
-این نسخه را جایگزین bot.py فعلی کن و Deploy بزن.
-
-
-بعد از Deploy، تست را دقیقاً این‌طور انجام بده:
-
-
-
-
-/start → باید پیام خوشامد دریافت کنی.
-
-
-فال حافظ → باید فال بگیری.
-
-
-📜 فال حافظ → آن هم باید فال بگیرد.
-
-
-
-
-در لاگ باید بعد از /start یک sendMessage: 200 ببینیم و بعد از فال حافظ هم Selected ghazal و sendMessage: 200 ظاهر شود.
 
 
