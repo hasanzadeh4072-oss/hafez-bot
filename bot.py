@@ -1,17 +1,21 @@
 import os
 import json
 import random
-import re
 import time
 import threading
+import re
+import io
+
 import requests
+from flask import Flask, request
 
-from flask import Flask, request, jsonify
+
+app = Flask(__name__)
 
 
-# ============================================================
+# =========================================================
 # Configuration
-# ============================================================
+# =========================================================
 
 TOKEN = os.environ.get("SOROUSH_TOKEN")
 
@@ -20,133 +24,140 @@ if not TOKEN:
 
 API = f"https://api.splus.ir/bot{TOKEN}"
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_FILE = os.path.join(BASE_DIR, "HafezFilebot.json")
+DATA_FILE = "HafezFilebot.json"
 
-CHANNEL_TAG = "@LIFE_M23 🌱"
+CHANNEL_URL = "https://splus.ir/@LIFE_M23"
 
-BUTTON_TEXT = "📜 فال حافظ"
+HAFEZ_TOP_URL = "https://hafez.top/ghazal-{}.html"
+HAFEZ_TOP_URL_ALT = "https://hafez.top/ghazal-{}/"
 
-# Render automatically provides this variable.
-# You can also manually set WEBHOOK_URL if needed.
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
+REQUEST_TIMEOUT = 20
+AUDIO_TIMEOUT = 40
 
-if not WEBHOOK_URL:
-    render_url = os.environ.get("RENDER_EXTERNAL_URL")
-    if render_url:
-        WEBHOOK_URL = render_url.rstrip("/") + "/webhook"
+MAX_MESSAGE_LENGTH = 4096
 
-
-# ============================================================
-# Flask
-# ============================================================
-
-app = Flask(__name__)
+# برای اینکه نزدیک سقف 4096 نرویم
+SAFE_MESSAGE_LENGTH = 3900
 
 
-# ============================================================
+# =========================================================
 # Load Hafez data
-# ============================================================
+# =========================================================
 
 def load_hafez_data():
     if not os.path.exists(DATA_FILE):
         raise FileNotFoundError(
-            f"Required file not found: {DATA_FILE}"
+            f"{DATA_FILE} not found."
         )
 
     with open(DATA_FILE, "r", encoding="utf-8") as f:
-        raw = json.load(f)
+        data = json.load(f)
 
     records = []
 
-    if not isinstance(raw, list):
-        raise ValueError("HafezFilebot.json must contain a JSON array.")
+    if isinstance(data, list):
+        source_items = data
+    elif isinstance(data, dict):
+        source_items = [data]
+    else:
+        raise ValueError("Invalid Hafez JSON structure.")
 
-    for item in raw:
+    for item in source_items:
+
         if not isinstance(item, dict):
             continue
 
-        for record_id, data in item.items():
-            if not isinstance(data, dict):
+        for record_id, record in item.items():
+
+            if not isinstance(record, dict):
                 continue
 
-            title = str(data.get("Title", "")).strip()
+            title = str(record.get("Title") or "").strip()
+            poem = str(record.get("Poem") or "").strip()
+            source = str(record.get("Source") or "").strip()
+            audio = record.get("Audio")
 
-            # Extract ghazal number from title:
-            # غزل شمارهٔ ۱
-            # غزل شماره ۱
-            # غزل ۱
-            match = re.search(r"(\d+)", title)
-
-            if not match:
+            if not title or not poem:
                 continue
 
-            ghazal_number = int(match.group(1))
+            ghazal_number = extract_ghazal_number(title)
 
-            poem = str(data.get("Poem", "")).strip()
-            source = str(data.get("Source", "")).strip()
-            audio = str(data.get("Audio", "")).strip()
-
-            if not poem:
+            if ghazal_number is None:
                 continue
 
-            records.append(
-                {
-                    "id": str(record_id),
-                    "number": ghazal_number,
-                    "title": title,
-                    "poem": poem,
-                    "source": source,
-                    "audio": audio,
-                }
-            )
+            records.append({
+                "record_id": str(record_id),
+                "number": ghazal_number,
+                "title": title,
+                "poem": poem,
+                "source": source,
+                "audio": audio
+            })
 
     if not records:
-        raise ValueError("No valid Hafez ghazals found.")
+        raise ValueError("No valid Hafez ghazals found in JSON.")
+
+    print(f"[DATA] Loaded {len(records)} ghazals.")
 
     return records
 
 
+# =========================================================
+# Extract ghazal number
+# =========================================================
+
+def extract_ghazal_number(title):
+
+    if not title:
+        return None
+
+    # اعداد فارسی
+    persian_digits = str.maketrans(
+        "۰۱۲۳۴۵۶۷۸۹",
+        "0123456789"
+    )
+
+    normalized = title.translate(persian_digits)
+
+    match = re.search(r"(\d+)", normalized)
+
+    if not match:
+        return None
+
+    try:
+        return int(match.group(1))
+    except Exception:
+        return None
+
+
+# =========================================================
+# Global data
+# =========================================================
+
 HAFEZ_DATA = load_hafez_data()
 
 
-# ============================================================
+# =========================================================
 # HTTP helpers
-# ============================================================
+# =========================================================
 
-SESSION = requests.Session()
+def post_api(method, data=None, files=None):
 
-SESSION.headers.update(
-    {
-        "User-Agent": (
-            "Mozilla/5.0 "
-            "(Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 "
-            "Chrome/131.0 Safari/537.36"
-        )
-    }
-)
-
-
-def api_call(method, payload=None, files=None, timeout=30):
-    """
-    Call Soroush Plus Bot API.
-    """
     url = f"{API}/{method}"
 
     try:
         if files:
-            response = SESSION.post(
+            response = requests.post(
                 url,
-                data=payload or {},
+                data=data or {},
                 files=files,
-                timeout=timeout,
+                timeout=REQUEST_TIMEOUT
             )
         else:
-            response = SESSION.post(
+            response = requests.post(
                 url,
-                json=payload or {},
-                timeout=timeout,
+                json=data or {},
+                timeout=REQUEST_TIMEOUT
             )
 
         try:
@@ -154,348 +165,678 @@ def api_call(method, payload=None, files=None, timeout=30):
         except Exception:
             result = {
                 "ok": False,
-                "description": response.text[:500],
+                "description": response.text
             }
 
         print(
             f"[SPLUS] {method}: "
-            f"{response.status_code} "
-            f"{result}"
+            f"{response.status_code} {result}"
         )
 
-        return result
+        return response, result
 
     except Exception as e:
-        print(f"[SPLUS ERROR] {method}: {e}")
-        return {
+
+        print(
+            f"[SPLUS ERROR] {method}: {e}"
+        )
+
+        return None, {
             "ok": False,
-            "description": str(e),
+            "description": str(e)
         }
 
 
-# ============================================================
-# Keyboard
-# ============================================================
+# =========================================================
+# Send message
+# =========================================================
+
+def send_message(chat_id, text, reply_markup=None):
+
+    data = {
+        "chat_id": chat_id,
+        "text": text
+    }
+
+    if reply_markup is not None:
+        data["reply_markup"] = reply_markup
+
+    return post_api(
+        "sendMessage",
+        data=data
+    )
+
+
+# =========================================================
+# Split long messages
+# =========================================================
+
+def split_message(text, max_length=SAFE_MESSAGE_LENGTH):
+
+    if len(text) <= MAX_MESSAGE_LENGTH:
+        return [text]
+
+    chunks = []
+
+    remaining = text.strip()
+
+    while len(remaining) > max_length:
+
+        # ترجیح می‌دهیم در خط خالی بشکنیم
+        cut = remaining.rfind(
+            "\n\n",
+            0,
+            max_length
+        )
+
+        # اگر پیدا نشد، در خط معمولی
+        if cut < 0:
+            cut = remaining.rfind(
+                "\n",
+                0,
+                max_length
+            )
+
+        # اگر باز هم پیدا نشد، در فاصله
+        if cut < 0:
+            cut = remaining.rfind(
+                " ",
+                0,
+                max_length
+            )
+
+        # آخرین حالت: برش مستقیم
+        if cut <= 0:
+            cut = max_length
+
+        part = remaining[:cut].strip()
+
+        if part:
+            chunks.append(part)
+
+        remaining = remaining[cut:].strip()
+
+    if remaining:
+        chunks.append(remaining)
+
+    return chunks
+
+
+def send_long_message(chat_id, text):
+
+    chunks = split_message(text)
+
+    print(
+        f"[MESSAGE] length={len(text)} "
+        f"chunks={len(chunks)}"
+    )
+
+    results = []
+
+    for index, chunk in enumerate(chunks):
+
+        result = send_message(
+            chat_id,
+            chunk
+        )
+
+        results.append(result)
+
+        # فاصله بسیار کوتاه برای جلوگیری از فشار پشت سر هم
+        if index < len(chunks) - 1:
+            time.sleep(0.15)
+
+    return results
+
+
+# =========================================================
+# Reply keyboard
+# =========================================================
 
 def main_keyboard():
+
     return {
         "keyboard": [
             [
                 {
-                    "text": BUTTON_TEXT
+                    "text": "📜 فال حافظ"
                 }
             ]
         ],
         "resize_keyboard": True,
-        "one_time_keyboard": False,
+        "one_time_keyboard": False
     }
 
 
-# ============================================================
-# Send message
-# ============================================================
+# =========================================================
+# Fetch Hafez page
+# =========================================================
 
-def send_message(chat_id, text, reply_markup=None):
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
+def fetch_hafez_page(number):
+
+    urls = [
+        HAFEZ_TOP_URL.format(number),
+        HAFEZ_TOP_URL_ALT.format(number)
+    ]
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 "
+            "(Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 "
+            "(KHTML, like Gecko) "
+            "Chrome/131.0 Safari/537.36"
+        )
     }
 
-    if reply_markup is not None:
-        payload["reply_markup"] = reply_markup
+    for url in urls:
 
-    return api_call("sendMessage", payload)
+        try:
+
+            print(
+                f"[HAFEZ.TOP] Fetching: {url}"
+            )
+
+            response = requests.get(
+                url,
+                headers=headers,
+                timeout=REQUEST_TIMEOUT
+            )
+
+            if response.status_code != 200:
+                print(
+                    f"[HAFEZ.TOP] HTTP "
+                    f"{response.status_code}"
+                )
+                continue
+
+            response.encoding = response.apparent_encoding or "utf-8"
+
+            html = response.text
+
+            if len(html) < 1000:
+                continue
+
+            print(
+                f"[HAFEZ.TOP] OK "
+                f"length={len(html)}"
+            )
+
+            return html
+
+        except Exception as e:
+
+            print(
+                f"[HAFEZ.TOP ERROR] {e}"
+            )
+
+    return None
 
 
-# ============================================================
-# Send voice
-# ============================================================
+# =========================================================
+# Clean HTML
+# =========================================================
 
-def send_voice(chat_id, audio_url):
-    """
-    Ganjoor audio in HafezFilebot.json is normally OGG.
-    Soroush Plus supports OGG/Opus through sendVoice.
+def html_to_text(html):
 
-    First try the remote URL directly.
-    If that fails, download the file and upload it.
-    """
+    if not html:
+        return ""
 
-    if not audio_url:
-        return None
+    text = html
 
-    # --------------------------------------------------------
-    # First attempt: send URL directly
-    # --------------------------------------------------------
-
-    result = api_call(
-        "sendVoice",
-        {
-            "chat_id": chat_id,
-            "voice": audio_url,
-        },
-        timeout=30,
+    # حذف script و style
+    text = re.sub(
+        r"<script\b[^>]*>.*?</script>",
+        " ",
+        text,
+        flags=re.I | re.S
     )
 
-    if result.get("ok"):
-        return result
+    text = re.sub(
+        r"<style\b[^>]*>.*?</style>",
+        " ",
+        text,
+        flags=re.I | re.S
+    )
 
-    print("[VOICE] Direct URL failed. Trying download/upload...")
+    # تبدیل br و block tags به newline
+    text = re.sub(
+        r"<br\s*/?>",
+        "\n",
+        text,
+        flags=re.I
+    )
 
-    # --------------------------------------------------------
-    # Second attempt: download and upload
-    # --------------------------------------------------------
+    text = re.sub(
+        r"</(?:p|div|li|h1|h2|h3|h4|h5|h6|section|article)>",
+        "\n",
+        text,
+        flags=re.I
+    )
 
-    try:
-        response = SESSION.get(
-            audio_url,
-            timeout=30,
-            stream=True,
+    # حذف باقی تگ‌ها
+    text = re.sub(
+        r"<[^>]+>",
+        " ",
+        text
+    )
+
+    # HTML entities
+    replacements = {
+        "&nbsp;": " ",
+        "&amp;": "&",
+        "&quot;": '"',
+        "&#039;": "'",
+        "&lt;": "<",
+        "&gt;": ">"
+    }
+
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+    # فاصله‌ها
+    text = re.sub(
+        r"[ \t]+",
+        " ",
+        text
+    )
+
+    # خطوط خالی اضافی
+    text = re.sub(
+        r"\n\s*\n\s*\n+",
+        "\n\n",
+        text
+    )
+
+    return text.strip()
+
+
+# =========================================================
+# Extract fortune interpretation
+# =========================================================
+
+def extract_interpretation(html, number):
+
+    if not html:
+        return None
+
+    # -----------------------------------------------------
+    # روش اول:
+    # مستقیماً از بخش "نتیجه تفال شما..."
+    # -----------------------------------------------------
+
+    marker_pattern = (
+        rf"نتیجه\s+تفال\s+شما\s+به\s+غزل\s+"
+        rf"{number}\s+حافظ"
+    )
+
+    match = re.search(
+        marker_pattern,
+        html,
+        flags=re.I
+    )
+
+    if match:
+
+        section = html[match.end():]
+
+        # پایان بخش تعبیر
+        end_patterns = [
+            r"تفسیر\s+کامل\s+غزل",
+            r"تفسیر\s+غزل",
+            r"معنی\s+و\s+تفسیر",
+            r"غزل‌های\s+مشابه",
+            r"دیدگاهتان\s+را\s+بنویسید",
+            r"دیدگاه"
+        ]
+
+        end_positions = []
+
+        for pattern in end_patterns:
+
+            end_match = re.search(
+                pattern,
+                section,
+                flags=re.I
+            )
+
+            if end_match:
+                end_positions.append(
+                    end_match.start()
+                )
+
+        if end_positions:
+            section = section[
+                :min(end_positions)
+            ]
+
+        # استخراج li ها
+        li_items = re.findall(
+            r"<li\b[^>]*>(.*?)</li>",
+            section,
+            flags=re.I | re.S
         )
 
-        response.raise_for_status()
+        if li_items:
 
-        audio_bytes = response.content
+            cleaned_items = []
 
-        if not audio_bytes:
-            print("[VOICE] Empty audio file.")
-            return result
+            for item in li_items:
 
-        filename = os.path.basename(
-            audio_url.split("?")[0]
-        ) or "hafez.ogg"
+                item_text = html_to_text(item)
 
-        upload_payload = {
-            "chat_id": str(chat_id),
-        }
+                item_text = re.sub(
+                    r"^\s*[*•\-]\s*",
+                    "",
+                    item_text
+                ).strip()
 
-        upload_files = {
-            "voice": (
-                filename,
-                audio_bytes,
-                "audio/ogg",
+                if item_text:
+                    cleaned_items.append(
+                        item_text
+                    )
+
+            if cleaned_items:
+
+                return "\n".join(
+                    f"• {item}"
+                    for item in cleaned_items
+                )
+
+        # اگر li پیدا نشد، متن خام بخش
+        clean_section = html_to_text(section)
+
+        lines = []
+
+        for line in clean_section.splitlines():
+
+            line = line.strip()
+
+            if not line:
+                continue
+
+            if len(line) < 3:
+                continue
+
+            line = re.sub(
+                r"^[*•\-]\s*",
+                "",
+                line
+            )
+
+            lines.append(line)
+
+        if lines:
+
+            return "\n".join(
+                f"• {line}"
+                for line in lines
+            )
+
+    # -----------------------------------------------------
+    # روش دوم:
+    # در صورت تغییر HTML سایت، از بخش معنی و تفسیر
+    # استفاده می‌کنیم.
+    # -----------------------------------------------------
+
+    text = html_to_text(html)
+
+    marker = f"معنی و تفسیر غزل {number} حافظ"
+
+    start = text.find(marker)
+
+    if start >= 0:
+
+        section = text[start + len(marker):]
+
+        end_markers = [
+            f"نتیجه تفال شما به غزل {number} حافظ",
+            "تفسیر کامل غزل",
+            "غزل‌های مشابه",
+            "دیدگاهتان را بنویسید"
+        ]
+
+        positions = []
+
+        for end_marker in end_markers:
+
+            pos = section.find(end_marker)
+
+            if pos >= 0:
+                positions.append(pos)
+
+        if positions:
+            section = section[:min(positions)]
+
+        section = section.strip()
+
+        if section:
+            return section
+
+    return None
+
+
+# =========================================================
+# Extract MP3 URL from Hafez.top
+# =========================================================
+
+def extract_mp3_url(html, number):
+
+    if not html:
+        return None
+
+    # ابتدا دنبال لینک مستقیم mp3 غزل می‌گردیم
+    patterns = [
+        rf'https?://[^"\']+ghazal[-_]{number}\.mp3',
+        rf'https?://[^"\']+/ghazal-{number}\.mp3',
+        rf'https?://[^"\']+/ghazal_{number}\.mp3'
+    ]
+
+    for pattern in patterns:
+
+        match = re.search(
+            pattern,
+            html,
+            flags=re.I
+        )
+
+        if match:
+            return match.group(0)
+
+    # حالت عمومی‌تر
+    all_mp3 = re.findall(
+        r'https?://[^"\']+\.mp3',
+        html,
+        flags=re.I
+    )
+
+    for url in all_mp3:
+
+        normalized = url.lower()
+
+        if (
+            f"ghazal-{number}" in normalized
+            or
+            f"ghazal_{number}" in normalized
+            or
+            f"ghazal{number}" in normalized
+        ):
+            return url
+
+    return None
+
+
+# =========================================================
+# Download audio
+# =========================================================
+
+def download_audio(url):
+
+    if not url:
+        return None
+
+    try:
+
+        print(
+            f"[AUDIO] Downloading: {url}"
+        )
+
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 "
+                "(Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 "
+                "(KHTML, like Gecko) "
+                "Chrome/131.0 Safari/537.36"
             )
         }
 
-        return api_call(
-            "sendVoice",
-            upload_payload,
-            files=upload_files,
-            timeout=60,
-        )
-
-    except Exception as e:
-        print(f"[VOICE ERROR] {e}")
-        return result
-
-
-# ============================================================
-# Interpretation
-# ============================================================
-
-def extract_interpretation(html, ghazal_number):
-    """
-    Extract the 'نتیجه تفال' section from hafez.top.
-
-    Example page structure:
-
-    نتیجه تفال شما به غزل 1 حافظ
-    ...
-    ...
-    تفسیر کامل غزل 1 حافظ
-    """
-
-    # Normalize HTML a little
-    html = html.replace("\r", "\n")
-
-    # Remove scripts/styles
-    html = re.sub(
-        r"<script\b[^>]*>.*?</script>",
-        " ",
-        html,
-        flags=re.I | re.S,
-    )
-
-    html = re.sub(
-        r"<style\b[^>]*>.*?</style>",
-        " ",
-        html,
-        flags=re.I | re.S,
-    )
-
-    # Convert common block tags to newlines
-    html = re.sub(
-        r"</(?:p|div|li|h1|h2|h3|h4|h5|h6|br|section)>",
-        "\n",
-        html,
-        flags=re.I,
-    )
-
-    # Remove remaining tags
-    text = re.sub(r"<[^>]+>", " ", html)
-
-    # Decode common HTML entities
-    import html as html_module
-
-    text = html_module.unescape(text)
-
-    # Normalize whitespace
-    text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"\n\s*\n+", "\n\n", text)
-
-    # --------------------------------------------------------
-    # Find the interpretation/result section
-    # --------------------------------------------------------
-
-    patterns = [
-        rf"نتیجه\s+تفال\s+شما\s+به\s+غزل\s*{ghazal_number}\s*حافظ",
-        rf"نتیجه\s+تفال\s+شما\s+به\s+غزل\s*{ghazal_number}",
-        r"نتیجه\s+تفال\s+شما\s+به\s+غزل",
-    ]
-
-    start = -1
-
-    for pattern in patterns:
-        match = re.search(
-            pattern,
-            text,
-            flags=re.I,
-        )
-
-        if match:
-            start = match.end()
-            break
-
-    if start == -1:
-        return None
-
-    # Stop before the long literary interpretation section
-    stop_patterns = [
-        r"تفسیر\s+کامل\s+غزل",
-        r"تفسیر\s+غزل",
-        r"معنی\s+و\s+تفسیر\s+غزل",
-        r"غزل‌های\s+مشابه",
-        r"دیدگاه",
-    ]
-
-    end = len(text)
-
-    for pattern in stop_patterns:
-        match = re.search(
-            pattern,
-            text[start:],
-            flags=re.I,
-        )
-
-        if match:
-            candidate_end = start + match.start()
-
-            if candidate_end < end:
-                end = candidate_end
-
-    interpretation = text[start:end].strip()
-
-    # Remove navigation/noise
-    interpretation = re.sub(
-        r"\s*[\r\n]+\s*",
-        "\n",
-        interpretation,
-    )
-
-    interpretation = re.sub(
-        r"\n{3,}",
-        "\n\n",
-        interpretation,
-    )
-
-    # Remove leading/trailing punctuation/noise
-    interpretation = interpretation.strip(
-        " \n\r\t:|-"
-    )
-
-    # If extraction accidentally became too short,
-    # return None so fallback can be used.
-    if len(interpretation) < 30:
-        return None
-
-    return interpretation
-
-
-def fetch_interpretation(ghazal_number):
-    """
-    Fetch the interpretation for the exact selected ghazal.
-    """
-
-    url = f"https://hafez.top/ghazal-{ghazal_number}/"
-
-    try:
-        response = SESSION.get(
+        response = requests.get(
             url,
-            timeout=15,
+            headers=headers,
+            timeout=AUDIO_TIMEOUT
         )
 
         response.raise_for_status()
 
-        response.encoding = response.apparent_encoding or "utf-8"
+        content = response.content
 
-        interpretation = extract_interpretation(
-            response.text,
-            ghazal_number,
+        if not content:
+            print("[AUDIO] Empty file.")
+            return None
+
+        # جلوگیری از ارسال HTML به جای فایل صوتی
+        content_type = (
+            response.headers.get(
+                "Content-Type",
+                ""
+            ).lower()
         )
 
-        if interpretation:
-            return interpretation
+        if (
+            "text/html" in content_type
+            and not url.lower().endswith(".mp3")
+        ):
+            print(
+                "[AUDIO] Response appears to be HTML."
+            )
+            return None
 
         print(
-            f"[INTERPRETATION] "
-            f"Could not extract ghazal {ghazal_number}"
+            f"[AUDIO] Downloaded "
+            f"{len(content)} bytes."
         )
+
+        return content
 
     except Exception as e:
+
         print(
-            f"[INTERPRETATION ERROR] "
-            f"Ghazal {ghazal_number}: {e}"
+            f"[AUDIO ERROR] {e}"
         )
 
-    return (
-        "تعبیر این غزل در حال حاضر در دسترس نیست.\n"
-        "لطفاً چند لحظه بعد دوباره تلاش کنید."
+        return None
+
+
+# =========================================================
+# Send audio
+# =========================================================
+
+def send_audio(chat_id, audio_bytes, number):
+
+    if not audio_bytes:
+        return False
+
+    filename = f"hafez_{number}.mp3"
+
+    files = {
+        "audio": (
+            filename,
+            io.BytesIO(audio_bytes),
+            "audio/mpeg"
+        )
+    }
+
+    data = {
+        "chat_id": str(chat_id)
+    }
+
+    response, result = post_api(
+        "sendAudio",
+        data=data,
+        files=files
     )
 
+    if (
+        result
+        and result.get("ok") is True
+    ):
+        print(
+            f"[AUDIO] Sent successfully "
+            f"for ghazal #{number}"
+        )
+        return True
 
-# ============================================================
-# Format poem
-# ============================================================
-
-def clean_poem(poem):
-    """
-    Keep the original poem as much as possible,
-    while normalizing excessive blank lines.
-    """
-
-    poem = poem.replace("\r\n", "\n")
-    poem = poem.replace("\r", "\n")
-
-    poem = re.sub(
-        r"\n{3,}",
-        "\n\n",
-        poem,
+    print(
+        f"[AUDIO] Failed for ghazal #{number}"
     )
 
-    return poem.strip()
+    return False
 
 
-# ============================================================
-# Build fortune
-# ============================================================
+# =========================================================
+# Get interpretation + audio from same page
+# =========================================================
 
-def build_fortune(record):
+def get_hafez_extras(number):
+
+    html = fetch_hafez_page(number)
+
+    if not html:
+        return {
+            "interpretation": None,
+            "audio_url": None
+        }
+
+    interpretation = extract_interpretation(
+        html,
+        number
+    )
+
+    audio_url = extract_mp3_url(
+        html,
+        number
+    )
+
+    print(
+        f"[EXTRAS] ghazal #{number} "
+        f"interpretation="
+        f"{bool(interpretation)} "
+        f"audio="
+        f"{audio_url}"
+    )
+
+    return {
+        "interpretation": interpretation,
+        "audio_url": audio_url
+    }
+
+
+# =========================================================
+# Build fortune text
+# =========================================================
+
+def build_fortune_text(record, interpretation):
+
     number = record["number"]
+    poem = record["poem"].strip()
+    source = record["source"].strip()
 
-    poem = clean_poem(record["poem"])
-
-    source = record["source"]
-
-    interpretation = fetch_interpretation(number)
+    if not interpretation:
+        interpretation = (
+            "تعبیر این غزل در حال حاضر "
+            "در دسترس نیست."
+        )
 
     text = (
         "فال حافظ\n"
@@ -503,296 +844,317 @@ def build_fortune(record):
         f"{poem}\n\n"
         "منبع گنجور\n"
         f"{source}\n"
-        f"{CHANNEL_TAG}\n\n"
+        "@LIFE_M23 🌱\n\n"
         "──────────────\n\n"
         "🌌 تعبیر\n\n"
-        f"{interpretation}\n\n"
-        f"{CHANNEL_TAG}"
+        f"{interpretation.strip()}\n\n"
+        "@LIFE_M23 🌱"
     )
 
     return text
 
 
-# ============================================================
-# Process Hafez fortune
-# ============================================================
+# =========================================================
+# Send fortune
+# =========================================================
 
 def send_fortune(chat_id):
-    """
-    Select ONE random ghazal.
-
-    Everything afterwards uses that same record:
-      - number
-      - poem
-      - source
-      - audio
-      - interpretation
-    """
 
     record = random.choice(HAFEZ_DATA)
 
+    number = record["number"]
+
     print(
-        f"[FORTUNE] "
-        f"Selected ghazal #{record['number']} "
-        f"record={record['id']}"
+        f"[FORTUNE] Selected ghazal "
+        f"#{number} "
+        f"record={record['record_id']}"
     )
 
-    # --------------------------------------------------------
-    # Main text
-    # --------------------------------------------------------
+    # -----------------------------------------------------
+    # پیام انتظار
+    # -----------------------------------------------------
 
-    text = build_fortune(record)
+    send_message(
+        chat_id,
+        "🌿 نیت کنید...\n\n"
+        "در حال گرفتن فال حافظ"
+    )
+
+    # -----------------------------------------------------
+    # دریافت تعبیر و صوت از صفحه همان غزل
+    # -----------------------------------------------------
+
+    extras = get_hafez_extras(number)
+
+    interpretation = extras.get(
+        "interpretation"
+    )
+
+    audio_url = extras.get(
+        "audio_url"
+    )
+
+    # -----------------------------------------------------
+    # ساخت متن
+    # -----------------------------------------------------
+
+    fortune_text = build_fortune_text(
+        record,
+        interpretation
+    )
+
+    print(
+        f"[FORTUNE] Final text length="
+        f"{len(fortune_text)}"
+    )
+
+    # -----------------------------------------------------
+    # ارسال متن
+    # -----------------------------------------------------
+
+    send_long_message(
+        chat_id,
+        fortune_text
+    )
+
+    # -----------------------------------------------------
+    # صوت کاملاً جدا از متن
+    # -----------------------------------------------------
+
+    if audio_url:
+
+        print(
+            f"[AUDIO] Ghazal #{number} "
+            f"source={audio_url}"
+        )
+
+        audio_bytes = download_audio(
+            audio_url
+        )
+
+        if audio_bytes:
+
+            send_audio(
+                chat_id,
+                audio_bytes,
+                number
+            )
+
+        else:
+
+            print(
+                f"[AUDIO] Download failed "
+                f"for ghazal #{number}"
+            )
+
+    else:
+
+        print(
+            f"[AUDIO] No audio available "
+            f"for ghazal #{number}"
+        )
+
+
+# =========================================================
+# /start
+# =========================================================
+
+def handle_start(chat_id):
+
+    text = (
+        "به فال حافظ خوش آمدید 🌿\n\n"
+        "برای گرفتن فال، دکمه زیر را بزنید."
+    )
 
     send_message(
         chat_id,
         text,
-        reply_markup=main_keyboard(),
-    )
-
-    # --------------------------------------------------------
-    # Audio - ALWAYS separate message
-    # --------------------------------------------------------
-
-    audio_url = record.get("audio")
-
-    if audio_url:
-        print(
-            f"[AUDIO] "
-            f"Ghazal #{record['number']} -> {audio_url}"
-        )
-
-        send_voice(
-            chat_id,
-            audio_url,
-        )
-
-    return True
-
-
-# ============================================================
-# Handle incoming message
-# ============================================================
-
-def handle_message(message):
-    if not isinstance(message, dict):
-        return
-
-    chat = message.get("chat") or {}
-
-    chat_id = chat.get("id")
-
-    if chat_id is None:
-        print("[MESSAGE] No chat_id.")
-        return
-
-    text = message.get("text") or ""
-    text = text.strip()
-
-    print(
-        f"[MESSAGE] "
-        f"chat_id={chat_id} "
-        f"text={text!r}"
-    )
-
-    # --------------------------------------------------------
-    # Start
-    # --------------------------------------------------------
-
-    if text in (
-        "/start",
-        "/start@hafez_bot",
-        "شروع",
-    ):
-        send_message(
-            chat_id,
-            "به فال حافظ خوش آمدید 🌿\n\n"
-            "برای گرفتن فال، دکمه زیر را بزنید.",
-            reply_markup=main_keyboard(),
-        )
-        return
-
-    # --------------------------------------------------------
-    # Hafez button
-    # --------------------------------------------------------
-
-    if text == BUTTON_TEXT:
-        send_message(
-            chat_id,
-            "🌿 نیت کنید...\n\n"
-            "در حال گرفتن فال حافظ",
-        )
-
-        try:
-            send_fortune(chat_id)
-
-        except Exception as e:
-            print(f"[FORTUNE ERROR] {e}")
-
-            send_message(
-                chat_id,
-                "متأسفانه هنگام گرفتن فال مشکلی پیش آمد.\n"
-                "لطفاً دوباره تلاش کنید.",
-                reply_markup=main_keyboard(),
-            )
-
-        return
-
-    # --------------------------------------------------------
-    # Any other message
-    # --------------------------------------------------------
-
-    send_message(
-        chat_id,
-        "برای گرفتن فال حافظ، دکمه زیر را بزنید.",
-        reply_markup=main_keyboard(),
+        reply_markup=main_keyboard()
     )
 
 
-# ============================================================
-# Webhook
-# ============================================================
+# =========================================================
+# Process update
+# =========================================================
 
-@app.route("/webhook", methods=["POST"])
-def webhook():
+def process_update(update):
+
     try:
+
+        print(
+            f"[UPDATE] {json.dumps(update, ensure_ascii=False)}"
+        )
+
+        message = update.get("message")
+
+        if not message:
+            return
+
+        chat = message.get("chat")
+
+        if not chat:
+            return
+
+        chat_id = chat.get("id")
+
+        if chat_id is None:
+            return
+
+        text = message.get("text")
+
+        print(
+            f"[MESSAGE] chat_id={chat_id} "
+            f"text='{text}'"
+        )
+
+        if text == "/start":
+
+            handle_start(chat_id)
+            return
+
+        if text == "📜 فال حافظ":
+
+            send_fortune(chat_id)
+            return
+
+    except Exception as e:
+
+        print(
+            f"[PROCESS ERROR] {e}"
+        )
+
+
+# =========================================================
+# Webhook
+# =========================================================
+
+@app.route(
+    "/webhook",
+    methods=["POST"]
+)
+def webhook():
+
+    try:
+
         update = request.get_json(
             silent=True
         )
 
         if not update:
-            return jsonify(
-                {
-                    "ok": True
-                }
-            )
+            return "OK", 200
 
-        print(
-            "[UPDATE]",
-            json.dumps(
-                update,
-                ensure_ascii=False,
-            )[:3000],
+        # پردازش در thread تا سروش سریع 200 بگیرد
+        thread = threading.Thread(
+            target=process_update,
+            args=(update,),
+            daemon=True
         )
 
-        message = update.get("message")
+        thread.start()
 
-        if message:
-            # Process immediately.
-            # Soroush webhook receives a successful HTTP response
-            # only after this handler returns, so do the work in
-            # a background thread.
-            thread = threading.Thread(
-                target=handle_message,
-                args=(message,),
-                daemon=True,
-            )
-            thread.start()
-
-        return jsonify(
-            {
-                "ok": True
-            }
-        )
+        return "OK", 200
 
     except Exception as e:
-        print(f"[WEBHOOK ERROR] {e}")
 
-        # Still return 200 to avoid repeated webhook delivery
-        # for malformed/non-critical updates.
-        return jsonify(
-            {
-                "ok": True
-            }
+        print(
+            f"[WEBHOOK ERROR] {e}"
         )
 
+        return "OK", 200
 
-# ============================================================
+
+# =========================================================
 # Health check
-# ============================================================
+# =========================================================
 
-@app.route("/", methods=["GET"])
+@app.route("/")
+def index():
+
+    return (
+        "Hafez Bot is running.",
+        200
+    )
+
+
+@app.route("/health")
 def health():
-    return jsonify(
-        {
-            "ok": True,
-            "bot": "hafez-bot",
-            "ghazals": len(HAFEZ_DATA),
-        }
-    )
+
+    return {
+        "status": "ok",
+        "ghazals": len(HAFEZ_DATA)
+    }, 200
 
 
-@app.route("/health", methods=["GET"])
-def health_check():
-    return jsonify(
-        {
-            "ok": True,
-            "service": "hafez-bot",
-            "ghazals": len(HAFEZ_DATA),
-        }
-    )
-
-
-# ============================================================
+# =========================================================
 # Set webhook
-# ============================================================
+# =========================================================
 
 def setup_webhook():
-    if not WEBHOOK_URL:
+
+    time.sleep(2)
+
+    webhook_url = os.environ.get(
+        "WEBHOOK_URL"
+    )
+
+    if not webhook_url:
+
+        render_url = os.environ.get(
+            "RENDER_EXTERNAL_URL"
+        )
+
+        if render_url:
+
+            webhook_url = (
+                render_url.rstrip("/")
+                + "/webhook"
+            )
+
+    if not webhook_url:
+
         print(
             "[WEBHOOK] WEBHOOK_URL / "
-            "RENDER_EXTERNAL_URL not available."
+            "RENDER_EXTERNAL_URL not found."
         )
+
         return
 
     print(
-        f"[WEBHOOK] Setting webhook: {WEBHOOK_URL}"
+        f"[WEBHOOK] Setting webhook: "
+        f"{webhook_url}"
     )
 
-    result = api_call(
+    response, result = post_api(
         "setWebhook",
-        {
-            "url": WEBHOOK_URL,
-            "allowed_updates": ["message"],
-            "drop_pending_updates": True,
-        },
-        timeout=30,
+        data={
+            "url": webhook_url
+        }
     )
 
     print(
-        "[WEBHOOK RESULT]",
-        result,
+        f"[WEBHOOK] Result: {result}"
     )
 
 
-# ============================================================
-# Start webhook setup
-# ============================================================
-
-def start_webhook_setup():
-    # Small delay gives Gunicorn/Render time to finish startup.
-    time.sleep(2)
-    setup_webhook()
-
-
-threading.Thread(
-    target=start_webhook_setup,
-    daemon=True,
-).start()
-
-
-# ============================================================
-# Local execution
-# ============================================================
+# =========================================================
+# Start
+# =========================================================
 
 if __name__ == "__main__":
+
+    threading.Thread(
+        target=setup_webhook,
+        daemon=True
+    ).start()
+
     port = int(
         os.environ.get(
             "PORT",
-            "10000",
+            "10000"
         )
     )
 
     app.run(
         host="0.0.0.0",
-        port=port,
-        )
+        port=port
+    )
