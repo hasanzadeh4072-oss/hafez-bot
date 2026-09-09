@@ -65,53 +65,95 @@ FORTUNE_KEYBOARD = {
 # ==================================
 
 def load_data():
+
     global DATA
 
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
+    with open(
+        DATA_FILE,
+        "r",
+        encoding="utf-8"
+    ) as f:
+
         raw_data = json.load(f)
 
     normalized = []
 
     if not isinstance(raw_data, list):
-        raise ValueError("JSON root must be a list.")
+
+        raise ValueError(
+            "JSON root must be a list."
+        )
 
     for item in raw_data:
 
         if not isinstance(item, dict):
+
             continue
 
         for ghazal_id, record in item.items():
 
             if not isinstance(record, dict):
+
                 continue
 
             audio = record.get("Audio")
 
-            if not isinstance(audio, str) or not audio.strip():
+            if (
+                not isinstance(audio, str)
+                or not audio.strip()
+            ):
+
                 audio = None
 
             normalized.append(
                 {
                     "id": str(ghazal_id),
+
                     "Audio": audio,
-                    "Author": record.get("Author", ""),
-                    "Book": record.get("Book", ""),
-                    "Poem": record.get("Poem", ""),
-                    "Source": record.get("Source", ""),
-                    "Title": record.get("Title", "")
+
+                    "Author": record.get(
+                        "Author",
+                        ""
+                    ),
+
+                    "Book": record.get(
+                        "Book",
+                        ""
+                    ),
+
+                    "Poem": record.get(
+                        "Poem",
+                        ""
+                    ),
+
+                    "Source": record.get(
+                        "Source",
+                        ""
+                    ),
+
+                    "Title": record.get(
+                        "Title",
+                        ""
+                    )
                 }
             )
 
     DATA = normalized
 
-    print(f"Loaded {len(DATA)} ghazals.")
+    print(
+        f"Loaded {len(DATA)} ghazals."
+    )
 
 
 # ==================================
 # HTTP Helpers
 # ==================================
 
-def api_post(method, data=None, files=None):
+def api_post(
+    method,
+    data=None,
+    files=None
+):
 
     url = f"{API}/{method}"
 
@@ -125,6 +167,7 @@ def api_post(method, data=None, files=None):
         )
 
         try:
+
             result = response.json()
 
         except Exception:
@@ -183,6 +226,26 @@ def send_message(
 
 
 # ==================================
+# Answer Callback Query
+# ==================================
+
+def answer_callback_query(
+    callback_query_id
+):
+
+    if not callback_query_id:
+
+        return None
+
+    return api_post(
+        "answerCallbackQuery",
+        data={
+            "callback_query_id": callback_query_id
+        }
+    )
+
+
+# ==================================
 # Delete Message
 # ==================================
 
@@ -192,6 +255,7 @@ def delete_message(
 ):
 
     if not message_id:
+
         return None
 
     return api_post(
@@ -328,6 +392,7 @@ def download_audio(
 ):
 
     if not audio_url:
+
         return None
 
     try:
@@ -349,6 +414,7 @@ def download_audio(
         content = response.content
 
         if not content:
+
             return None
 
         return content
@@ -483,7 +549,7 @@ def handle_fortune_button(
     with STATE_LOCK:
 
         # ----------------------------------
-        # First press:
+        # First action:
         # Show intention + inline button
         # ----------------------------------
 
@@ -499,7 +565,10 @@ def handle_fortune_button(
 
             message_id = None
 
-            if result and result.get("ok"):
+            if (
+                result
+                and result.get("ok")
+            ):
 
                 try:
 
@@ -533,7 +602,10 @@ def handle_fortune_button(
             )
         )
 
+    # ----------------------------------
     # Delete intention message
+    # ----------------------------------
+
     if pending_message_id:
 
         delete_message(
@@ -541,7 +613,10 @@ def handle_fortune_button(
             pending_message_id
         )
 
+    # ----------------------------------
     # Generate fortune
+    # ----------------------------------
+
     process_fortune(
         chat_id
     )
@@ -573,7 +648,7 @@ def webhook():
         )
 
         # ==================================
-        # Callback Query
+        # Inline Keyboard Callback
         # ==================================
 
         callback_query = update.get(
@@ -582,50 +657,125 @@ def webhook():
 
         if callback_query:
 
+            print(
+                "Callback Query received:",
+                callback_query
+            )
+
+            callback_query_id = (
+                callback_query.get(
+                    "id"
+                )
+            )
+
             callback_data = (
                 callback_query.get(
                     "data"
                 )
             )
 
-            if callback_data == "get_fortune":
+            # ----------------------------------
+            # Remove button loading state
+            # ----------------------------------
 
-                callback_message = (
-                    callback_query.get(
-                        "message"
-                    )
+            if callback_query_id:
+
+                answer_callback_query(
+                    callback_query_id
                 )
 
-                if callback_message:
+            # ----------------------------------
+            # Check callback data
+            # ----------------------------------
 
-                    chat = (
-                        callback_message.get(
-                            "chat"
-                        )
-                    )
+            if callback_data != "get_fortune":
 
-                    if chat:
+                return "OK"
 
-                        chat_id = chat.get(
-                            "id"
-                        )
+            # ----------------------------------
+            # Get message from callback
+            # ----------------------------------
 
-                        with STATE_LOCK:
+            callback_message = (
+                callback_query.get(
+                    "message"
+                )
+            )
 
-                            is_pending = (
-                                chat_id
-                                in PENDING_INTENT
-                            )
+            if not callback_message:
 
-                        if is_pending:
+                print(
+                    "Callback has no message."
+                )
 
-                            thread = threading.Thread(
-                                target=handle_fortune_button,
-                                args=(chat_id,),
-                                daemon=True
-                            )
+                return "OK"
 
-                            thread.start()
+            # ----------------------------------
+            # Get chat
+            # ----------------------------------
+
+            chat = (
+                callback_message.get(
+                    "chat"
+                )
+            )
+
+            if not chat:
+
+                print(
+                    "Callback message has no chat."
+                )
+
+                return "OK"
+
+            chat_id = chat.get(
+                "id"
+            )
+
+            if chat_id is None:
+
+                print(
+                    "Callback chat_id is missing."
+                )
+
+                return "OK"
+
+            print(
+                "Inline button pressed. "
+                f"chat_id={chat_id}"
+            )
+
+            # ----------------------------------
+            # Make sure intention exists
+            # ----------------------------------
+
+            with STATE_LOCK:
+
+                is_pending = (
+                    chat_id
+                    in PENDING_INTENT
+                )
+
+            if not is_pending:
+
+                print(
+                    "No pending intention for "
+                    f"chat_id={chat_id}"
+                )
+
+                return "OK"
+
+            # ----------------------------------
+            # Process fortune in background
+            # ----------------------------------
+
+            thread = threading.Thread(
+                target=handle_fortune_button,
+                args=(chat_id,),
+                daemon=True
+            )
+
+            thread.start()
 
             return "OK"
 
@@ -669,6 +819,11 @@ def webhook():
 
         if text == "📜 فال حافظ":
 
+            print(
+                "Main fortune button pressed. "
+                f"chat_id={chat_id}"
+            )
+
             thread = threading.Thread(
                 target=handle_fortune_button,
                 args=(chat_id,),
@@ -678,6 +833,10 @@ def webhook():
             thread.start()
 
             return "OK"
+
+        # ==================================
+        # Ignore everything else
+        # ==================================
 
         return "OK"
 
