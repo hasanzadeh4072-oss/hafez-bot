@@ -41,6 +41,24 @@ HAZALS = []
 
 
 # ============================================================
+# Reply Keyboard
+# ============================================================
+
+MAIN_KEYBOARD = {
+    "keyboard": [
+        [
+            {
+                "text": "📜 فال حافظ"
+            }
+        ]
+    ],
+    "resize_keyboard": True,
+    "one_time_keyboard": False,
+    "is_persistent": True
+}
+
+
+# ============================================================
 # Load Hafez JSON
 # ============================================================
 
@@ -85,14 +103,12 @@ def load_data():
             audio = record.get("Audio")
 
             if isinstance(audio, str):
-
                 audio = audio.strip()
 
                 if not audio:
                     audio = None
 
             else:
-
                 audio = None
 
             loaded.append({
@@ -164,7 +180,8 @@ def splus_request(
 
 def send_message(
     chat_id,
-    text
+    text,
+    reply_markup=None
 ):
 
     if not text:
@@ -175,6 +192,12 @@ def send_message(
         "text": text,
         "disable_web_page_preview": "true"
     }
+
+    if reply_markup is not None:
+        data["reply_markup"] = json.dumps(
+            reply_markup,
+            ensure_ascii=False
+        )
 
     return splus_request(
         "sendMessage",
@@ -228,7 +251,6 @@ def split_message(
         )
 
         if cut < 1000:
-
             cut = remaining.rfind(
                 " ",
                 0,
@@ -313,9 +335,7 @@ def clean_poem(poem):
         "\n"
     )
 
-    poem = poem.strip()
-
-    return poem
+    return poem.strip()
 
 
 # ============================================================
@@ -389,10 +409,7 @@ def send_fortune(
         )
 
         if len(chunks) > 1:
-
-            time.sleep(
-                0.15
-            )
+            time.sleep(0.15)
 
 
 # ============================================================
@@ -440,8 +457,7 @@ def download_audio(
     except Exception as e:
 
         print(
-            f"[AUDIO ERROR] "
-            f"{e}"
+            f"[AUDIO ERROR] {e}"
         )
 
         return None
@@ -516,9 +532,7 @@ def send_audio(
         files=files
     )
 
-    if result and result.get(
-        "ok"
-    ):
+    if result and result.get("ok"):
 
         print(
             f"[AUDIO] Sent successfully "
@@ -545,7 +559,8 @@ def process_fortune(
 
         send_message(
             chat_id,
-            "متأسفانه مجموعه غزل‌های حافظ در دسترس نیست."
+            "متأسفانه مجموعه غزل‌های حافظ در دسترس نیست.",
+            reply_markup=MAIN_KEYBOARD
         )
 
         return
@@ -563,14 +578,13 @@ def process_fortune(
     result = send_message(
         chat_id,
         "🌿 نیت کنید...\n\n"
-        "در حال گرفتن فال حافظ"
+        "در حال گرفتن فال حافظ",
+        reply_markup=MAIN_KEYBOARD
     )
 
     temporary_message_id = None
 
-    if result and result.get(
-        "ok"
-    ):
+    if result and result.get("ok"):
 
         try:
 
@@ -582,9 +596,7 @@ def process_fortune(
 
             temporary_message_id = None
 
-    time.sleep(
-        0.4
-    )
+    time.sleep(0.4)
 
     if temporary_message_id:
 
@@ -666,7 +678,8 @@ def webhook():
             send_message(
                 chat_id,
                 "🌿 به فال حافظ خوش آمدید.\n\n"
-                "برای گرفتن فال، «فال حافظ» را ارسال کنید."
+                "برای گرفتن فال، دکمه «📜 فال حافظ» را بزنید.",
+                reply_markup=MAIN_KEYBOARD
             )
 
             return "OK"
