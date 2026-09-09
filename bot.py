@@ -961,7 +961,8 @@ def get_audio_title(record):
 
 def get_audio_performer(record):
 
-    return "حافظ"
+    # فقط این مقدار تغییر کرده است.
+    return "شعرکده سروش پلاس"
 
 
 # ==================================
@@ -1434,4 +1435,7 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=port
-        )
+    )
+
+
+
