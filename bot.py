@@ -38,8 +38,6 @@ READ_TIMEOUT = 15
 
 REQUEST_TIMEOUT = (CONNECT_TIMEOUT, READ_TIMEOUT)
 
-# تأخیر فعلی بات حفظ شده
-FORTUNE_DELAY = 0.4
 
 # ----------------------------------
 # Audio Cache
@@ -600,27 +598,6 @@ def send_message(
 
 
 # ==================================
-# Delete Message
-# ==================================
-
-def delete_message(
-    chat_id,
-    message_id
-):
-
-    if not message_id:
-        return None
-
-    return splus_request(
-        "deleteMessage",
-        data={
-            "chat_id": chat_id,
-            "message_id": message_id
-        }
-    )
-
-
-# ==================================
 # Split Message
 # ==================================
 
@@ -1141,76 +1118,6 @@ def process_fortune(chat_id):
         )
 
         # ------------------------------
-        # Temporary Message
-        # ------------------------------
-
-        log(
-            "[FORTUNE] Sending temporary message..."
-        )
-
-        result = send_message(
-            chat_id,
-            "🌿 نیت کنید...\n\n"
-            "در حال گرفتن فال حافظ",
-            reply_markup=MAIN_KEYBOARD
-        )
-
-        temporary_message_id = None
-
-        if result and result.get("ok"):
-
-            try:
-
-                temporary_message_id = (
-                    result["result"]["message_id"]
-                )
-
-                log(
-                    f"[FORTUNE] "
-                    f"Temporary message id="
-                    f"{temporary_message_id}"
-                )
-
-            except Exception:
-
-                temporary_message_id = None
-
-                log(
-                    "[FORTUNE] "
-                    "Temporary message ID "
-                    "could not be extracted."
-                )
-
-        # ------------------------------
-        # Preserve Existing UX Delay
-        # ------------------------------
-
-        log(
-            f"[FORTUNE] "
-            f"Sleeping {FORTUNE_DELAY}s..."
-        )
-
-        time.sleep(
-            FORTUNE_DELAY
-        )
-
-        # ------------------------------
-        # Delete Temporary Message
-        # ------------------------------
-
-        if temporary_message_id:
-
-            log(
-                "[FORTUNE] "
-                "Deleting temporary message..."
-            )
-
-            delete_message(
-                chat_id,
-                temporary_message_id
-            )
-
-        # ------------------------------
         # Fortune Text
         # ------------------------------
 
@@ -1566,4 +1473,4 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=port
-)
+    )
