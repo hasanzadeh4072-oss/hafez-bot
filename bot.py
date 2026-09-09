@@ -1196,28 +1196,23 @@ def send_audio(
     filename = (
         f"hafez_"
         f"{get_ghazal_number(record)}"
-        f".mp3"
+        f".ogg"
     )
 
     files = {
-        "audio": (
+        "voice": (
             filename,
             audio_data,
-            "audio/mpeg"
+            "audio/ogg"
         )
     }
 
     data = {
-        "chat_id": chat_id,
-        "title": (
-            f"حافظ - غزل "
-            f"{get_ghazal_number(record)}"
-        ),
-        "performer": "حافظ",
+        "chat_id": chat_id
     }
 
     result = splus_request(
-        "sendAudio",
+        "sendVoice",
         data=data,
         files=files
     )
@@ -1757,4 +1752,4 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=port
-        )
+)
