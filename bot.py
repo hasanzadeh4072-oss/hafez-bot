@@ -467,71 +467,65 @@ def load_data():
 
     loaded = []
 
-    # ----------------------------------
-    # HafezFilebot.json ساختار دیکشنری دارد
-    # ----------------------------------
+    for item in raw_data:
 
-    if not isinstance(raw_data, dict):
-
-        raise ValueError(
-            "Invalid HafezFilebot.json structure: "
-            "root must be a dictionary."
-        )
-
-    for record_id, record in raw_data.items():
-
-        if not isinstance(record, dict):
+        if not isinstance(item, dict):
             continue
 
-        poem = str(
-            record.get("Poem") or ""
-        ).strip()
+        for record_id, record in item.items():
 
-        if not poem:
-            continue
+            if not isinstance(record, dict):
+                continue
 
-        title = str(
-            record.get("Title") or ""
-        ).strip()
+            poem = str(
+                record.get("Poem") or ""
+            ).strip()
 
-        source = str(
-            record.get("Source") or ""
-        ).strip()
+            if not poem:
+                continue
 
-        audio = record.get("Audio")
+            title = str(
+                record.get("Title") or ""
+            ).strip()
 
-        if isinstance(audio, str):
+            source = str(
+                record.get("Source") or ""
+            ).strip()
 
-            audio = audio.strip()
+            audio = record.get("Audio")
 
-            if not audio:
+            if isinstance(audio, str):
+
+                audio = audio.strip()
+
+                if not audio:
+                    audio = None
+
+            else:
+
                 audio = None
 
-        else:
+            loaded.append({
+                "record_id": str(record_id),
 
-            audio = None
+                "author": record.get(
+                    "Author",
+                    "حافظ"
+                ),
 
-        loaded.append({
-            "record_id": str(record_id),
+                "book": record.get(
+                    "Book",
+                    "غزلیات حافظ"
+                ),
 
-            "author": record.get(
-                "Author",
-                "حافظ"
-            ),
+                "poem": poem,
 
-            "book": record.get(
-                "Book",
-                "غزلیات حافظ"
-            ),
+                "source": source,
 
-            "poem": poem,
+                "title": title,
 
-            "source": source,
-
-            "title": title,
-
-            "audio": audio,
-        })
+                "audio": audio,
+            })
 
     HAZALS = loaded
 
