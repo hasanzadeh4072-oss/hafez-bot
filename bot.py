@@ -45,24 +45,18 @@ STATE_LOCK = threading.Lock()
 
 
 # ==================================
-# Reply Keyboard
+# Inline Keyboard
 # ==================================
 
 FORTUNE_KEYBOARD = {
-    "keyboard": [
+    "inline_keyboard": [
         [
             {
-                "text": "📜 گرفتن فال"
+                "text": "📜 گرفتن فال",
+                "callback_data": "get_fortune"
             }
         ]
-    ],
-    "resize_keyboard": True,
-    "one_time_keyboard": True
-}
-
-
-REMOVE_KEYBOARD = {
-    "remove_keyboard": True
+    ]
 }
 
 
@@ -118,9 +112,11 @@ def load_data():
 # ==================================
 
 def api_post(method, data=None, files=None):
+
     url = f"{API}/{method}"
 
     try:
+
         response = requests.post(
             url,
             data=data,
@@ -130,18 +126,27 @@ def api_post(method, data=None, files=None):
 
         try:
             result = response.json()
+
         except Exception:
+
             result = {
                 "ok": False,
                 "description": response.text
             }
 
-        print(f"{method}: {response.status_code} {result}")
+        print(
+            f"{method}: "
+            f"{response.status_code} "
+            f"{result}"
+        )
 
         return result
 
     except Exception as e:
-        print(f"{method} ERROR: {e}")
+
+        print(
+            f"{method} ERROR: {e}"
+        )
 
         return {
             "ok": False,
@@ -153,7 +158,11 @@ def api_post(method, data=None, files=None):
 # Send Message
 # ==================================
 
-def send_message(chat_id, text, reply_markup=None):
+def send_message(
+    chat_id,
+    text,
+    reply_markup=None
+):
 
     data = {
         "chat_id": chat_id,
@@ -161,6 +170,7 @@ def send_message(chat_id, text, reply_markup=None):
     }
 
     if reply_markup is not None:
+
         data["reply_markup"] = json.dumps(
             reply_markup,
             ensure_ascii=False
@@ -176,7 +186,10 @@ def send_message(chat_id, text, reply_markup=None):
 # Delete Message
 # ==================================
 
-def delete_message(chat_id, message_id):
+def delete_message(
+    chat_id,
+    message_id
+):
 
     if not message_id:
         return None
@@ -191,25 +204,15 @@ def delete_message(chat_id, message_id):
 
 
 # ==================================
-# Hide Reply Keyboard
-# ==================================
-
-def hide_keyboard(chat_id):
-
-    return send_message(
-        chat_id,
-        " ",
-        reply_markup=REMOVE_KEYBOARD
-    )
-
-
-# ==================================
 # Extract Ghazal Number
 # ==================================
 
 def get_ghazal_number(record):
 
-    source = record.get("Source", "")
+    source = record.get(
+        "Source",
+        ""
+    )
 
     if isinstance(source, str):
 
@@ -219,9 +222,13 @@ def get_ghazal_number(record):
         )
 
         if match:
+
             return match.group(1)
 
-    title = record.get("Title", "")
+    title = record.get(
+        "Title",
+        ""
+    )
 
     if isinstance(title, str):
 
@@ -231,9 +238,13 @@ def get_ghazal_number(record):
         )
 
         if match:
+
             return match.group(1)
 
-    return record.get("id", "")
+    return record.get(
+        "id",
+        ""
+    )
 
 
 # ==================================
@@ -242,11 +253,19 @@ def get_ghazal_number(record):
 
 def build_fortune(record):
 
-    ghazal_number = get_ghazal_number(record)
+    ghazal_number = get_ghazal_number(
+        record
+    )
 
-    poem = record.get("Poem", "")
+    poem = record.get(
+        "Poem",
+        ""
+    )
 
-    source = record.get("Source", "")
+    source = record.get(
+        "Source",
+        ""
+    )
 
     text = (
         "فال حافظ\n"
@@ -264,7 +283,10 @@ def build_fortune(record):
 # Send Long Message Safely
 # ==================================
 
-def send_long_message(chat_id, text):
+def send_long_message(
+    chat_id,
+    text
+):
 
     if len(text) <= MAX_MESSAGE_LENGTH:
 
@@ -288,7 +310,9 @@ def send_long_message(chat_id, text):
             chunk
         )
 
-        results.append(result)
+        results.append(
+            result
+        )
 
         start += MAX_MESSAGE_LENGTH
 
@@ -299,7 +323,9 @@ def send_long_message(chat_id, text):
 # Download Audio
 # ==================================
 
-def download_audio(audio_url):
+def download_audio(
+    audio_url
+):
 
     if not audio_url:
         return None
@@ -314,7 +340,7 @@ def download_audio(audio_url):
         if response.status_code != 200:
 
             print(
-                f"Audio download failed: "
+                "Audio download failed: "
                 f"{response.status_code}"
             )
 
@@ -329,7 +355,9 @@ def download_audio(audio_url):
 
     except Exception as e:
 
-        print(f"Audio download ERROR: {e}")
+        print(
+            f"Audio download ERROR: {e}"
+        )
 
         return None
 
@@ -338,16 +366,23 @@ def download_audio(audio_url):
 # Send Audio
 # ==================================
 
-def send_audio(chat_id, record):
+def send_audio(
+    chat_id,
+    record
+):
 
-    audio_url = record.get("Audio")
+    audio_url = record.get(
+        "Audio"
+    )
 
     # Audio MUST come only from JSON
     if not audio_url:
+
         print(
-            f"No audio available for ghazal "
-            f"{record.get('id')}"
+            "No audio available for "
+            f"ghazal {record.get('id')}"
         )
+
         return None
 
     audio_bytes = download_audio(
@@ -355,10 +390,12 @@ def send_audio(chat_id, record):
     )
 
     if not audio_bytes:
+
         print(
-            f"Could not download audio for "
+            "Could not download audio for "
             f"ghazal {record.get('id')}"
         )
+
         return None
 
     ghazal_number = get_ghazal_number(
@@ -379,7 +416,9 @@ def send_audio(chat_id, record):
 
     data = {
         "chat_id": chat_id,
-        "title": f"حافظ - غزل {ghazal_number}",
+        "title": (
+            f"حافظ - غزل {ghazal_number}"
+        ),
         "performer": "حافظ"
     }
 
@@ -394,21 +433,26 @@ def send_audio(chat_id, record):
 # Process Fortune
 # ==================================
 
-def process_fortune(chat_id):
+def process_fortune(
+    chat_id
+):
 
     if not DATA:
 
         send_message(
             chat_id,
-            "متأسفانه اطلاعات فال حافظ در دسترس نیست."
+            "متأسفانه اطلاعات فال حافظ "
+            "در دسترس نیست."
         )
 
         return
 
-    record = random.choice(DATA)
+    record = random.choice(
+        DATA
+    )
 
     print(
-        f"Fortune selected: "
+        "Fortune selected: "
         f"{get_ghazal_number(record)}"
     )
 
@@ -432,13 +476,15 @@ def process_fortune(chat_id):
 # Fortune Button Handler
 # ==================================
 
-def handle_fortune_button(chat_id):
+def handle_fortune_button(
+    chat_id
+):
 
     with STATE_LOCK:
 
         # ----------------------------------
         # First press:
-        # Show intention + reply keyboard
+        # Show intention + inline button
         # ----------------------------------
 
         if chat_id not in PENDING_INTENT:
@@ -447,7 +493,7 @@ def handle_fortune_button(chat_id):
                 chat_id,
                 "🌿 نیت کنید...\n\n"
                 "نیت خود را در دل کنید و سپس "
-                "دکمه «📜 گرفتن فال» را بزنید.",
+                "دکمه زیر را بزنید.",
                 reply_markup=FORTUNE_KEYBOARD
             )
 
@@ -456,25 +502,35 @@ def handle_fortune_button(chat_id):
             if result and result.get("ok"):
 
                 try:
+
                     message_id = (
-                        result["result"]["message_id"]
+                        result[
+                            "result"
+                        ][
+                            "message_id"
+                        ]
                     )
 
                 except Exception:
+
                     message_id = None
 
-            PENDING_INTENT[chat_id] = message_id
+            PENDING_INTENT[
+                chat_id
+            ] = message_id
 
             return
 
         # ----------------------------------
-        # Second press:
+        # Second action:
         # Take fortune
         # ----------------------------------
 
-        pending_message_id = PENDING_INTENT.pop(
-            chat_id,
-            None
+        pending_message_id = (
+            PENDING_INTENT.pop(
+                chat_id,
+                None
+            )
         )
 
     # Delete intention message
@@ -484,11 +540,6 @@ def handle_fortune_button(chat_id):
             chat_id,
             pending_message_id
         )
-
-    # Hide reply keyboard
-    hide_keyboard(
-        chat_id
-    )
 
     # Generate fortune
     process_fortune(
@@ -520,6 +571,67 @@ def webhook():
             "Incoming update:",
             update
         )
+
+        # ==================================
+        # Callback Query
+        # ==================================
+
+        callback_query = update.get(
+            "callback_query"
+        )
+
+        if callback_query:
+
+            callback_data = (
+                callback_query.get(
+                    "data"
+                )
+            )
+
+            if callback_data == "get_fortune":
+
+                callback_message = (
+                    callback_query.get(
+                        "message"
+                    )
+                )
+
+                if callback_message:
+
+                    chat = (
+                        callback_message.get(
+                            "chat"
+                        )
+                    )
+
+                    if chat:
+
+                        chat_id = chat.get(
+                            "id"
+                        )
+
+                        with STATE_LOCK:
+
+                            is_pending = (
+                                chat_id
+                                in PENDING_INTENT
+                            )
+
+                        if is_pending:
+
+                            thread = threading.Thread(
+                                target=handle_fortune_button,
+                                args=(chat_id,),
+                                daemon=True
+                            )
+
+                            thread.start()
+
+            return "OK"
+
+        # ==================================
+        # Normal Message
+        # ==================================
 
         message = update.get(
             "message"
@@ -564,30 +676,6 @@ def webhook():
             )
 
             thread.start()
-
-            return "OK"
-
-        # ==================================
-        # Reply Keyboard Fortune Button
-        # ==================================
-
-        if text == "📜 گرفتن فال":
-
-            with STATE_LOCK:
-
-                is_pending = (
-                    chat_id in PENDING_INTENT
-                )
-
-            if is_pending:
-
-                thread = threading.Thread(
-                    target=handle_fortune_button,
-                    args=(chat_id,),
-                    daemon=True
-                )
-
-                thread.start()
 
             return "OK"
 
