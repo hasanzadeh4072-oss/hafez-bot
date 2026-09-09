@@ -1,7 +1,7 @@
 import os
 import json
 import random
-import re
+import time
 import threading
 import requests
 
@@ -11,9 +11,9 @@ from flask import Flask, request
 app = Flask(__name__)
 
 
-# ==================================
+# ============================================================
 # Configuration
-# ==================================
+# ============================================================
 
 TOKEN = os.environ.get("SOROUSH_TOKEN")
 
@@ -33,127 +33,98 @@ MAX_MESSAGE_LENGTH = 4000
 REQUEST_TIMEOUT = 30
 
 
-# ==================================
-# Global State
-# ==================================
+# ============================================================
+# Global data
+# ============================================================
 
-DATA = []
-
-PENDING_INTENT = {}
-
-STATE_LOCK = threading.Lock()
+HAZALS = []
 
 
-# ==================================
-# Inline Keyboard
-# ==================================
-
-FORTUNE_KEYBOARD = {
-    "inline_keyboard": [
-        [
-            {
-                "text": "📜 گرفتن فال",
-                "callback_data": "get_fortune"
-            }
-        ]
-    ]
-}
-
-
-# ==================================
-# Load JSON Data
-# ==================================
+# ============================================================
+# Load Hafez JSON
+# ============================================================
 
 def load_data():
+    global HAZALS
 
-    global DATA
+    if not os.path.exists(DATA_FILE):
+        raise FileNotFoundError(
+            f"Data file not found: {DATA_FILE}"
+        )
 
-    with open(
-        DATA_FILE,
-        "r",
-        encoding="utf-8"
-    ) as f:
-
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
         raw_data = json.load(f)
 
-    normalized = []
+    loaded = []
 
-    if not isinstance(raw_data, list):
-
-        raise ValueError(
-            "JSON root must be a list."
-        )
+    # --------------------------------------------------------
+    # The user's JSON is an array of objects.
+    # Each object contains one record such as:
+    #
+    # {
+    #     "2130": {
+    #         "Audio": "...",
+    #         "Author": "حافظ",
+    #         "Book": "غزلیات حافظ",
+    #         "Poem": "...",
+    #         "Source": "...",
+    #         "Title": "غزل شمارهٔ ۱"
+    #     }
+    # }
+    # --------------------------------------------------------
 
     for item in raw_data:
 
         if not isinstance(item, dict):
-
             continue
 
-        for ghazal_id, record in item.items():
+        for record_id, record in item.items():
 
             if not isinstance(record, dict):
-
                 continue
 
+            poem = str(record.get("Poem") or "").strip()
+
+            if not poem:
+                continue
+
+            title = str(record.get("Title") or "").strip()
+
+            source = str(record.get("Source") or "").strip()
+
+            # IMPORTANT:
+            # Audio is taken ONLY from the user's JSON.
+            # No fallback URL is generated.
             audio = record.get("Audio")
 
-            if (
-                not isinstance(audio, str)
-                or not audio.strip()
-            ):
+            if isinstance(audio, str):
+                audio = audio.strip()
 
+                if not audio:
+                    audio = None
+            else:
                 audio = None
 
-            normalized.append(
-                {
-                    "id": str(ghazal_id),
+            loaded.append({
+                "record_id": str(record_id),
+                "author": record.get("Author", "حافظ"),
+                "book": record.get("Book", "غزلیات حافظ"),
+                "poem": poem,
+                "source": source,
+                "title": title,
+                "audio": audio,
+            })
 
-                    "Audio": audio,
+    HAZALS = loaded
 
-                    "Author": record.get(
-                        "Author",
-                        ""
-                    ),
-
-                    "Book": record.get(
-                        "Book",
-                        ""
-                    ),
-
-                    "Poem": record.get(
-                        "Poem",
-                        ""
-                    ),
-
-                    "Source": record.get(
-                        "Source",
-                        ""
-                    ),
-
-                    "Title": record.get(
-                        "Title",
-                        ""
-                    )
-                }
-            )
-
-    DATA = normalized
-
-    print(
-        f"Loaded {len(DATA)} ghazals."
-    )
+    print(f"[DATA] Loaded {len(HAZALS)} ghazals.")
 
 
-# ==================================
-# HTTP Helpers
-# ==================================
+# ============================================================
+# Soroush API helper
+# ============================================================
 
-def api_post(
-    method,
-    data=None,
-    files=None
-):
+def splus_request(method, data=None, files=None):
 
     url = f"{API}/{method}"
 
@@ -166,99 +137,56 @@ def api_post(
             timeout=REQUEST_TIMEOUT
         )
 
-        try:
-
-            result = response.json()
-
-        except Exception:
-
-            result = {
-                "ok": False,
-                "description": response.text
-            }
-
         print(
-            f"{method}: "
+            f"[SPLUS] {method}: "
             f"{response.status_code} "
-            f"{result}"
+            f"{response.text[:1000]}"
         )
 
-        return result
+        response.raise_for_status()
+
+        return response.json()
 
     except Exception as e:
 
         print(
-            f"{method} ERROR: {e}"
+            f"[SPLUS ERROR] {method}: {e}"
         )
 
-        return {
-            "ok": False,
-            "description": str(e)
-        }
+        return None
 
 
-# ==================================
-# Send Message
-# ==================================
+# ============================================================
+# Send text message
+# ============================================================
 
-def send_message(
-    chat_id,
-    text,
-    reply_markup=None
-):
+def send_message(chat_id, text):
+
+    if not text:
+        return None
 
     data = {
         "chat_id": chat_id,
-        "text": text
+        "text": text,
+        "disable_web_page_preview": "true"
     }
 
-    if reply_markup is not None:
-
-        data["reply_markup"] = json.dumps(
-            reply_markup,
-            ensure_ascii=False
-        )
-
-    return api_post(
+    return splus_request(
         "sendMessage",
         data=data
     )
 
 
-# ==================================
-# Answer Callback Query
-# ==================================
+# ============================================================
+# Delete message
+# ============================================================
 
-def answer_callback_query(
-    callback_query_id
-):
-
-    if not callback_query_id:
-
-        return None
-
-    return api_post(
-        "answerCallbackQuery",
-        data={
-            "callback_query_id": callback_query_id
-        }
-    )
-
-
-# ==================================
-# Delete Message
-# ==================================
-
-def delete_message(
-    chat_id,
-    message_id
-):
+def delete_message(chat_id, message_id):
 
     if not message_id:
+        return
 
-        return None
-
-    return api_post(
+    splus_request(
         "deleteMessage",
         data={
             "chat_id": chat_id,
@@ -267,18 +195,69 @@ def delete_message(
     )
 
 
-# ==================================
-# Extract Ghazal Number
-# ==================================
+# ============================================================
+# Split long messages
+# ============================================================
+
+def split_message(text, max_length=MAX_MESSAGE_LENGTH):
+
+    if len(text) <= max_length:
+        return [text]
+
+    chunks = []
+
+    remaining = text.strip()
+
+    while len(remaining) > max_length:
+
+        cut = remaining.rfind(
+            "\n",
+            0,
+            max_length
+        )
+
+        if cut < 1000:
+            cut = remaining.rfind(
+                " ",
+                0,
+                max_length
+            )
+
+        if cut < 1:
+            cut = max_length
+
+        chunks.append(
+            remaining[:cut].strip()
+        )
+
+        remaining = remaining[cut:].strip()
+
+    if remaining:
+        chunks.append(remaining)
+
+    return chunks
+
+
+# ============================================================
+# Extract ghazal number
+# ============================================================
 
 def get_ghazal_number(record):
 
-    source = record.get(
-        "Source",
-        ""
-    )
+    title = record.get("title", "")
 
-    if isinstance(source, str):
+    # Example:
+    # غزل شمارهٔ 349
+    # غزل شمارهٔ ۱
+    #
+    # We prefer Source because it contains sh349,
+    # but Title is also kept as fallback.
+
+    source = record.get("source", "")
+
+    if source:
+
+        import re
 
         match = re.search(
             r"/sh(\d+)/?",
@@ -286,114 +265,133 @@ def get_ghazal_number(record):
         )
 
         if match:
-
             return match.group(1)
 
-    title = record.get(
-        "Title",
-        ""
+    import re
+
+    match = re.search(
+        r"(\d+)",
+        title
     )
 
-    if isinstance(title, str):
+    if match:
+        return match.group(1)
 
-        match = re.search(
-            r"(\d+)",
-            title
-        )
-
-        if match:
-
-            return match.group(1)
-
-    return record.get(
-        "id",
-        ""
-    )
+    return record.get("record_id", "نامشخص")
 
 
-# ==================================
-# Build Fortune Text
-# ==================================
+# ============================================================
+# Clean poem
+# ============================================================
+
+def clean_poem(poem):
+
+    if not poem:
+        return ""
+
+    # Normalize line endings
+    poem = poem.replace("\r\n", "\n")
+    poem = poem.replace("\r", "\n")
+
+    # Remove excessive blank lines at beginning/end
+    poem = poem.strip()
+
+    return poem
+
+
+# ============================================================
+# Build fortune text
+# ============================================================
 
 def build_fortune(record):
 
-    ghazal_number = get_ghazal_number(
-        record
+    number = get_ghazal_number(record)
+
+    poem = clean_poem(
+        record.get("poem", "")
     )
 
-    poem = record.get(
-        "Poem",
-        ""
-    )
-
-    source = record.get(
-        "Source",
-        ""
-    )
+    # --------------------------------------------------------
+    # VERY IMPORTANT:
+    #
+    # Only the poem is returned here.
+    #
+    # No:
+    # - hafez.top
+    # - interpretation
+    # - extra explanation
+    # - menu
+    # - previous/next ghazal
+    # - support message
+    # - duplicated poem
+    # --------------------------------------------------------
 
     text = (
-        "فال حافظ\n"
-        f"شماره غزل {ghazal_number}\n\n"
+        f"فال حافظ\n"
+        f"شماره غزل {number}\n\n"
         f"{poem}\n\n"
-        "منبع گنجور\n"
-        f"{source}\n"
-        "@LIFE_M23 🌱"
+        f"منبع گنجور\n"
+        f"{record.get('source', '')}\n"
+        f"@LIFE_M23 🌱"
     )
 
     return text
 
 
-# ==================================
-# Send Long Message Safely
-# ==================================
+# ============================================================
+# Send ghazal
+# ============================================================
 
-def send_long_message(
-    chat_id,
-    text
-):
+def send_fortune(chat_id, record):
 
-    if len(text) <= MAX_MESSAGE_LENGTH:
+    fortune_text = build_fortune(record)
 
-        return send_message(
-            chat_id,
-            text
-        )
+    print(
+        f"[FORTUNE] "
+        f"Ghazal #{get_ghazal_number(record)} "
+        f"record={record.get('record_id')}"
+    )
 
-    results = []
+    print(
+        f"[FORTUNE] Final text length="
+        f"{len(fortune_text)}"
+    )
 
-    start = 0
+    chunks = split_message(
+        fortune_text
+    )
 
-    while start < len(text):
+    print(
+        f"[MESSAGE] "
+        f"length={len(fortune_text)} "
+        f"chunks={len(chunks)}"
+    )
 
-        chunk = text[
-            start:start + MAX_MESSAGE_LENGTH
-        ]
+    for chunk in chunks:
 
-        result = send_message(
+        send_message(
             chat_id,
             chunk
         )
 
-        results.append(
-            result
-        )
-
-        start += MAX_MESSAGE_LENGTH
-
-    return results
+        # Small delay to preserve order
+        if len(chunks) > 1:
+            time.sleep(0.15)
 
 
-# ==================================
-# Download Audio
-# ==================================
+# ============================================================
+# Download user's own audio
+# ============================================================
 
-def download_audio(
-    audio_url
-):
+def download_audio(audio_url):
 
     if not audio_url:
-
         return None
+
+    print(
+        f"[AUDIO] Downloading ONLY user's source: "
+        f"{audio_url}"
+    )
 
     try:
 
@@ -402,80 +400,97 @@ def download_audio(
             timeout=REQUEST_TIMEOUT
         )
 
-        if response.status_code != 200:
-
-            print(
-                "Audio download failed: "
-                f"{response.status_code}"
-            )
-
-            return None
+        response.raise_for_status()
 
         content = response.content
 
         if not content:
-
+            print(
+                "[AUDIO] Empty audio response."
+            )
             return None
+
+        print(
+            f"[AUDIO] Downloaded "
+            f"{len(content)} bytes."
+        )
 
         return content
 
     except Exception as e:
 
         print(
-            f"Audio download ERROR: {e}"
+            f"[AUDIO ERROR] "
+            f"{e}"
         )
 
         return None
 
 
-# ==================================
-# Send Audio
-# ==================================
+# ============================================================
+# Send audio
+# ============================================================
 
-def send_audio(
-    chat_id,
-    record
-):
+def send_audio(chat_id, record):
 
-    audio_url = record.get(
-        "Audio"
-    )
+    # ========================================================
+    # CRITICAL RULE:
+    #
+    # Audio MUST come directly from Audio field
+    # in HafezFilebot.json.
+    #
+    # There is NO fallback.
+    # ========================================================
 
-    # Audio MUST come only from JSON
+    audio_url = record.get("audio")
+
     if not audio_url:
 
         print(
-            "No audio available for "
-            f"ghazal {record.get('id')}"
+            f"[AUDIO] No audio in user's source "
+            f"for ghazal #{get_ghazal_number(record)}"
         )
 
-        return None
+        return
 
-    audio_bytes = download_audio(
+    print(
+        f"[AUDIO] Ghazal #{get_ghazal_number(record)} "
+        f"source={audio_url}"
+    )
+
+    audio_data = download_audio(
         audio_url
     )
 
-    if not audio_bytes:
+    if not audio_data:
 
         print(
-            "Could not download audio for "
-            f"ghazal {record.get('id')}"
+            "[AUDIO] Audio unavailable. "
+            "Nothing will be sent."
         )
 
-        return None
-
-    ghazal_number = get_ghazal_number(
-        record
-    )
+        return
 
     filename = (
-        f"hafez_{ghazal_number}.mp3"
+        f"hafez_"
+        f"{get_ghazal_number(record)}"
+        f".mp3"
     )
+
+    # --------------------------------------------------------
+    # Soroush sendAudio requires an upload.
+    #
+    # Even if source is .ogg, we DO NOT invent another
+    # source or use hafez.top.
+    #
+    # We simply attempt to send the bytes from the user's
+    # Audio URL.
+    # --------------------------------------------------------
 
     files = {
         "audio": (
             filename,
-            audio_bytes,
+            audio_data,
             "audio/mpeg"
         )
     }
@@ -483,208 +498,116 @@ def send_audio(
     data = {
         "chat_id": chat_id,
         "title": (
-            f"حافظ - غزل {ghazal_number}"
+            f"حافظ - غزل "
+            f"{get_ghazal_number(record)}"
         ),
-        "performer": "حافظ"
+        "performer": "حافظ",
     }
 
-    return api_post(
+    result = splus_request(
         "sendAudio",
         data=data,
         files=files
     )
 
+    if result and result.get("ok"):
 
-# ==================================
-# Process Fortune
-# ==================================
+        print(
+            f"[AUDIO] Sent successfully "
+            f"for ghazal #{get_ghazal_number(record)}"
+        )
 
-def process_fortune(
-    chat_id
-):
+    else:
 
-    if not DATA:
+        print(
+            f"[AUDIO] Failed to send "
+            f"ghazal #{get_ghazal_number(record)}"
+        )
+
+
+# ============================================================
+# Fortune process
+# ============================================================
+
+def process_fortune(chat_id):
+
+    if not HAZALS:
 
         send_message(
             chat_id,
-            "متأسفانه اطلاعات فال حافظ "
-            "در دسترس نیست."
+            "متأسفانه مجموعه غزل‌های حافظ در دسترس نیست."
         )
 
         return
 
+    # --------------------------------------------------------
+    # Select one ghazal randomly
+    # --------------------------------------------------------
+
     record = random.choice(
-        DATA
+        HAZALS
     )
 
     print(
-        "Fortune selected: "
-        f"{get_ghazal_number(record)}"
+        f"[FORTUNE] Selected "
+        f"ghazal #{get_ghazal_number(record)} "
+        f"record={record.get('record_id')}"
     )
 
-    fortune_text = build_fortune(
+    # --------------------------------------------------------
+    # Temporary message
+    # --------------------------------------------------------
+
+    result = send_message(
+        chat_id,
+        "🌿 نیت کنید...\n\n"
+        "در حال گرفتن فال حافظ"
+    )
+
+    temporary_message_id = None
+
+    if result and result.get("ok"):
+
+        try:
+            temporary_message_id = (
+                result["result"]["message_id"]
+            )
+        except Exception:
+            temporary_message_id = None
+
+    # Small delay so user sees the status
+    time.sleep(0.4)
+
+    # Remove temporary message
+    if temporary_message_id:
+
+        delete_message(
+            chat_id,
+            temporary_message_id
+        )
+
+    # --------------------------------------------------------
+    # Send ONLY the ghazal
+    # --------------------------------------------------------
+
+    send_fortune(
+        chat_id,
         record
     )
 
-    send_long_message(
-        chat_id,
-        fortune_text
-    )
+    # --------------------------------------------------------
+    # Send audio ONLY if Audio exists in JSON
+    # --------------------------------------------------------
 
-    # Audio only from JSON Audio field
     send_audio(
         chat_id,
         record
     )
 
 
-# ==================================
-# Show Intention Message
-# ==================================
-
-def show_intention(
-    chat_id
-):
-
-    # ----------------------------------
-    # Remove any old pending state
-    # ----------------------------------
-
-    old_message_id = None
-
-    with STATE_LOCK:
-
-        old_message_id = PENDING_INTENT.pop(
-            chat_id,
-            None
-        )
-
-    # ----------------------------------
-    # Remove old intention message
-    # ----------------------------------
-
-    if old_message_id:
-
-        delete_message(
-            chat_id,
-            old_message_id
-        )
-
-    # ----------------------------------
-    # Send NEW intention message
-    # ----------------------------------
-
-    result = send_message(
-        chat_id,
-        "🌿 نیت کنید...\n\n"
-        "نیت خود را در دل کنید و سپس "
-        "دکمه زیر را بزنید.",
-        reply_markup=FORTUNE_KEYBOARD
-    )
-
-    message_id = None
-
-    if (
-        result
-        and result.get("ok")
-    ):
-
-        try:
-
-            message_id = (
-                result[
-                    "result"
-                ][
-                    "message_id"
-                ]
-            )
-
-        except Exception:
-
-            message_id = None
-
-    # ----------------------------------
-    # Save pending intention
-    # ----------------------------------
-
-    if message_id:
-
-        with STATE_LOCK:
-
-            PENDING_INTENT[
-                chat_id
-            ] = message_id
-
-        print(
-            "Intention message saved. "
-            f"chat_id={chat_id}, "
-            f"message_id={message_id}"
-        )
-
-    else:
-
-        print(
-            "WARNING: Intention message was "
-            "not saved because message_id "
-            "was not received."
-        )
-
-
-# ==================================
-# Handle Callback Fortune
-# ==================================
-
-def handle_fortune_callback(
-    chat_id
-):
-
-    # ----------------------------------
-    # Get and remove pending message
-    # ----------------------------------
-
-    with STATE_LOCK:
-
-        pending_message_id = (
-            PENDING_INTENT.pop(
-                chat_id,
-                None
-            )
-        )
-
-    # ----------------------------------
-    # No pending intention
-    # ----------------------------------
-
-    if not pending_message_id:
-
-        print(
-            "No pending intention for "
-            f"chat_id={chat_id}"
-        )
-
-        return
-
-    # ----------------------------------
-    # Delete intention message
-    # ----------------------------------
-
-    delete_message(
-        chat_id,
-        pending_message_id
-    )
-
-    # ----------------------------------
-    # Generate fortune
-    # ----------------------------------
-
-    process_fortune(
-        chat_id
-    )
-
-
-# ==================================
+# ============================================================
 # Webhook
-# ==================================
+# ============================================================
 
 @app.route(
     "/webhook",
@@ -698,238 +621,95 @@ def webhook():
             silent=True
         )
 
-        if not update:
-
-            return "OK"
-
         print(
-            "Incoming update:",
-            update
+            f"[UPDATE] {update}"
         )
 
-        # ==================================
-        # Inline Keyboard Callback
-        # ==================================
-
-        callback_query = update.get(
-            "callback_query"
-        )
-
-        if callback_query:
-
-            print(
-                "Callback Query received:",
-                callback_query
-            )
-
-            callback_query_id = (
-                callback_query.get(
-                    "id"
-                )
-            )
-
-            callback_data = (
-                callback_query.get(
-                    "data"
-                )
-            )
-
-            # ----------------------------------
-            # Answer callback immediately
-            # ----------------------------------
-
-            if callback_query_id:
-
-                answer_callback_query(
-                    callback_query_id
-                )
-
-            # ----------------------------------
-            # Only our fortune button
-            # ----------------------------------
-
-            if callback_data != "get_fortune":
-
-                print(
-                    "Unknown callback data:",
-                    callback_data
-                )
-
-                return "OK"
-
-            # ----------------------------------
-            # Get callback message
-            # ----------------------------------
-
-            callback_message = (
-                callback_query.get(
-                    "message"
-                )
-            )
-
-            if not callback_message:
-
-                print(
-                    "Callback has no message."
-                )
-
-                return "OK"
-
-            # ----------------------------------
-            # Get chat
-            # ----------------------------------
-
-            chat = (
-                callback_message.get(
-                    "chat"
-                )
-            )
-
-            if not chat:
-
-                print(
-                    "Callback message has no chat."
-                )
-
-                return "OK"
-
-            chat_id = chat.get(
-                "id"
-            )
-
-            if chat_id is None:
-
-                print(
-                    "Callback chat_id is missing."
-                )
-
-                return "OK"
-
-            print(
-                "Inline button pressed. "
-                f"chat_id={chat_id}"
-            )
-
-            # ----------------------------------
-            # Process in background
-            # ----------------------------------
-
-            thread = threading.Thread(
-                target=handle_fortune_callback,
-                args=(chat_id,),
-                daemon=True
-            )
-
-            thread.start()
-
+        if not update:
             return "OK"
-
-        # ==================================
-        # Normal Message
-        # ==================================
 
         message = update.get(
             "message"
         )
 
         if not message:
-
             return "OK"
 
         chat = message.get(
-            "chat"
+            "chat",
+            {}
         )
-
-        if not chat:
-
-            return "OK"
 
         chat_id = chat.get(
             "id"
         )
 
         text = message.get(
-            "text"
+            "text",
+            ""
         )
 
-        if not text:
-
+        if not chat_id:
             return "OK"
 
-        text = text.strip()
+        print(
+            f"[MESSAGE] "
+            f"chat_id={chat_id} "
+            f"text={text!r}"
+        )
 
-        # ==================================
-        # Main Fortune Button
-        # ==================================
+        # ----------------------------------------------------
+        # Fortune command
+        # ----------------------------------------------------
 
-        if text == "📜 فال حافظ":
+        if text.strip() == "📜 فال حافظ":
 
-            print(
-                "Main fortune button pressed. "
-                f"chat_id={chat_id}"
-            )
-
+            # Process in background so webhook immediately
+            # returns HTTP 200 to Soroush.
             thread = threading.Thread(
-                target=show_intention,
+                target=process_fortune,
                 args=(chat_id,),
                 daemon=True
             )
 
             thread.start()
 
-            return "OK"
-
-        # ==================================
-        # IMPORTANT:
-        # "📜 گرفتن فال" typed manually
-        # is intentionally ignored.
-        # It only works as Inline Callback.
-        # ==================================
-
-        if text == "📜 گرفتن فال":
-
-            print(
-                "Manual '📜 گرفتن فال' text "
-                "ignored. Inline button required."
-            )
-
-            return "OK"
-
-        # ==================================
-        # Ignore everything else
-        # ==================================
-
         return "OK"
 
     except Exception as e:
 
         print(
-            f"Webhook ERROR: {e}"
+            f"[WEBHOOK ERROR] {e}"
         )
 
         return "OK"
 
 
-# ==================================
-# Home / Health Check
-# ==================================
+# ============================================================
+# Home
+# ============================================================
 
 @app.route(
     "/",
-    methods=["GET"]
+    methods=["GET", "HEAD"]
 )
 def home():
 
     return "Hafez Bot is running."
 
 
-# ==================================
-# Set Webhook
-# ==================================
+# ============================================================
+# Set webhook
+# ============================================================
 
 def set_webhook():
 
-    result = api_post(
+    print(
+        f"[WEBHOOK] Setting webhook: "
+        f"{WEBHOOK_URL}"
+    )
+
+    result = splus_request(
         "setWebhook",
         data={
             "url": WEBHOOK_URL
@@ -937,29 +717,28 @@ def set_webhook():
     )
 
     print(
-        "Webhook result:",
-        result
+        f"[WEBHOOK RESULT] {result}"
     )
 
-    return result
 
-
-# ==================================
+# ============================================================
 # Startup
-# ==================================
+# ============================================================
 
-load_data()
+try:
 
-# Gunicorn runs:
-# gunicorn bot:app
-#
-# Therefore the __main__ block does NOT run.
-# We explicitly register the webhook here.
+    load_data()
 
-set_webhook()
+except Exception as e:
+
+    print(
+        f"[DATA ERROR] {e}"
+    )
 
 
 if __name__ == "__main__":
+
+    set_webhook()
 
     port = int(
         os.environ.get(
@@ -973,71 +752,5 @@ if __name__ == "__main__":
         port=port
     )
 
-
-
-این نسخه یک تفاوت مهم دارد: دکمه شیشه‌ای دیگر وابسته به وضعیت قبلی PENDING_INTENT نیست. هر بار که 📜 فال حافظ را می‌زنی، یک پیام نیت تازه با Inline Keyboard ساخته می‌شود.
-
-
-ضمن اینکه در spluspy فعلی نیز پشتیبانی از Inline Keyboard و callback_query برای بات‌های سروش‌پلاس مستند شده است.
-
-
-بعد از Deploy
-
-
-این بار تست را دقیقاً این‌طور انجام بده:
-
-
-۱. Render را Deploy کن و صبر کن Live شود.
-
-
-۲. در سروش‌پلاس روی:
-
-
-📜 فال حافظ
-
-
-بزن.
-
-
-باید دقیقاً این پیام بیاید:
-
-
-
-
-🌿 نیت کنید...
-
-
-نیت خود را در دل کنید و سپس دکمه زیر را بزنید.
-
-
-
-
-و زیر همین پیام باید:
-
-
-📜 گرفتن فال
-
-
-به شکل شیشه‌ای باشد.
-
-
-۳. روی همان دکمه شیشه‌ای بزن.
-
-
-در لاگ باید حداقل این را ببینیم:
-
-
-Callback Query received:
-
-
-
-و بعد:
-
-
-Inline button pressed. chat_id=203571
-
-
-
-اگر این بار دکمه باز هم اصلاً ظاهر نشد، آن‌وقت دیگر سراغ منطق Callback نمی‌رویم؛ چون مشکل از نمایش/پشتیبانی reply_markup در API سروش‌پلاس خواهد بود و همان قسمت را جداگانه بررسی می‌کنیم.
 
 
