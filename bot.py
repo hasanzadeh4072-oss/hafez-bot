@@ -539,61 +539,110 @@ def process_fortune(
 
 
 # ==================================
-# Fortune Button Handler
+# Show Intention Message
 # ==================================
 
-def handle_fortune_button(
+def show_intention(
     chat_id
 ):
 
+    # ----------------------------------
+    # Remove any old pending state
+    # ----------------------------------
+
+    old_message_id = None
+
     with STATE_LOCK:
 
-        # ----------------------------------
-        # First action:
-        # Show intention + inline button
-        # ----------------------------------
+        old_message_id = PENDING_INTENT.pop(
+            chat_id,
+            None
+        )
 
-        if chat_id not in PENDING_INTENT:
+    # ----------------------------------
+    # Remove old intention message
+    # ----------------------------------
 
-            result = send_message(
-                chat_id,
-                "🌿 نیت کنید...\n\n"
-                "نیت خود را در دل کنید و سپس "
-                "دکمه زیر را بزنید.",
-                reply_markup=FORTUNE_KEYBOARD
+    if old_message_id:
+
+        delete_message(
+            chat_id,
+            old_message_id
+        )
+
+    # ----------------------------------
+    # Send NEW intention message
+    # ----------------------------------
+
+    result = send_message(
+        chat_id,
+        "🌿 نیت کنید...\n\n"
+        "نیت خود را در دل کنید و سپس "
+        "دکمه زیر را بزنید.",
+        reply_markup=FORTUNE_KEYBOARD
+    )
+
+    message_id = None
+
+    if (
+        result
+        and result.get("ok")
+    ):
+
+        try:
+
+            message_id = (
+                result[
+                    "result"
+                ][
+                    "message_id"
+                ]
             )
+
+        except Exception:
 
             message_id = None
 
-            if (
-                result
-                and result.get("ok")
-            ):
+    # ----------------------------------
+    # Save pending intention
+    # ----------------------------------
 
-                try:
+    if message_id:
 
-                    message_id = (
-                        result[
-                            "result"
-                        ][
-                            "message_id"
-                        ]
-                    )
-
-                except Exception:
-
-                    message_id = None
+        with STATE_LOCK:
 
             PENDING_INTENT[
                 chat_id
             ] = message_id
 
-            return
+        print(
+            "Intention message saved. "
+            f"chat_id={chat_id}, "
+            f"message_id={message_id}"
+        )
 
-        # ----------------------------------
-        # Second action:
-        # Take fortune
-        # ----------------------------------
+    else:
+
+        print(
+            "WARNING: Intention message was "
+            "not saved because message_id "
+            "was not received."
+        )
+
+
+# ==================================
+# Handle Callback Fortune
+# ==================================
+
+def handle_fortune_callback(
+    chat_id
+):
+
+    # ----------------------------------
+    # Get and remove pending message
+    # ----------------------------------
+
+    with STATE_LOCK:
 
         pending_message_id = (
             PENDING_INTENT.pop(
@@ -603,15 +652,26 @@ def handle_fortune_button(
         )
 
     # ----------------------------------
+    # No pending intention
+    # ----------------------------------
+
+    if not pending_message_id:
+
+        print(
+            "No pending intention for "
+            f"chat_id={chat_id}"
+        )
+
+        return
+
+    # ----------------------------------
     # Delete intention message
     # ----------------------------------
 
-    if pending_message_id:
-
-        delete_message(
-            chat_id,
-            pending_message_id
-        )
+    delete_message(
+        chat_id,
+        pending_message_id
+    )
 
     # ----------------------------------
     # Generate fortune
@@ -675,7 +735,7 @@ def webhook():
             )
 
             # ----------------------------------
-            # Remove button loading state
+            # Answer callback immediately
             # ----------------------------------
 
             if callback_query_id:
@@ -685,15 +745,20 @@ def webhook():
                 )
 
             # ----------------------------------
-            # Check callback data
+            # Only our fortune button
             # ----------------------------------
 
             if callback_data != "get_fortune":
 
+                print(
+                    "Unknown callback data:",
+                    callback_data
+                )
+
                 return "OK"
 
             # ----------------------------------
-            # Get message from callback
+            # Get callback message
             # ----------------------------------
 
             callback_message = (
@@ -746,31 +811,11 @@ def webhook():
             )
 
             # ----------------------------------
-            # Make sure intention exists
-            # ----------------------------------
-
-            with STATE_LOCK:
-
-                is_pending = (
-                    chat_id
-                    in PENDING_INTENT
-                )
-
-            if not is_pending:
-
-                print(
-                    "No pending intention for "
-                    f"chat_id={chat_id}"
-                )
-
-                return "OK"
-
-            # ----------------------------------
-            # Process fortune in background
+            # Process in background
             # ----------------------------------
 
             thread = threading.Thread(
-                target=handle_fortune_button,
+                target=handle_fortune_callback,
                 args=(chat_id,),
                 daemon=True
             )
@@ -825,12 +870,28 @@ def webhook():
             )
 
             thread = threading.Thread(
-                target=handle_fortune_button,
+                target=show_intention,
                 args=(chat_id,),
                 daemon=True
             )
 
             thread.start()
+
+            return "OK"
+
+        # ==================================
+        # IMPORTANT:
+        # "📜 گرفتن فال" typed manually
+        # is intentionally ignored.
+        # It only works as Inline Callback.
+        # ==================================
+
+        if text == "📜 گرفتن فال":
+
+            print(
+                "Manual '📜 گرفتن فال' text "
+                "ignored. Inline button required."
+            )
 
             return "OK"
 
@@ -889,10 +950,16 @@ def set_webhook():
 
 load_data()
 
+# Gunicorn runs:
+# gunicorn bot:app
+#
+# Therefore the __main__ block does NOT run.
+# We explicitly register the webhook here.
+
+set_webhook()
+
 
 if __name__ == "__main__":
-
-    set_webhook()
 
     port = int(
         os.environ.get(
@@ -906,5 +973,71 @@ if __name__ == "__main__":
         port=port
     )
 
+
+
+این نسخه یک تفاوت مهم دارد: دکمه شیشه‌ای دیگر وابسته به وضعیت قبلی PENDING_INTENT نیست. هر بار که 📜 فال حافظ را می‌زنی، یک پیام نیت تازه با Inline Keyboard ساخته می‌شود.
+
+
+ضمن اینکه در spluspy فعلی نیز پشتیبانی از Inline Keyboard و callback_query برای بات‌های سروش‌پلاس مستند شده است.
+
+
+بعد از Deploy
+
+
+این بار تست را دقیقاً این‌طور انجام بده:
+
+
+۱. Render را Deploy کن و صبر کن Live شود.
+
+
+۲. در سروش‌پلاس روی:
+
+
+📜 فال حافظ
+
+
+بزن.
+
+
+باید دقیقاً این پیام بیاید:
+
+
+
+
+🌿 نیت کنید...
+
+
+نیت خود را در دل کنید و سپس دکمه زیر را بزنید.
+
+
+
+
+و زیر همین پیام باید:
+
+
+📜 گرفتن فال
+
+
+به شکل شیشه‌ای باشد.
+
+
+۳. روی همان دکمه شیشه‌ای بزن.
+
+
+در لاگ باید حداقل این را ببینیم:
+
+
+Callback Query received:
+
+
+
+و بعد:
+
+
+Inline button pressed. chat_id=203571
+
+
+
+اگر این بار دکمه باز هم اصلاً ظاهر نشد، آن‌وقت دیگر سراغ منطق Callback نمی‌رویم؛ چون مشکل از نمایش/پشتیبانی reply_markup در API سروش‌پلاس خواهد بود و همان قسمت را جداگانه بررسی می‌کنیم.
 
 
