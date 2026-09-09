@@ -53,6 +53,33 @@ AUDIO_NEGATIVE_CACHE_TTL = 10 * 60
 
 
 # ==================================
+# Logging
+# ==================================
+
+def log(message):
+    """
+    لاگ دقیق برای Render:
+    PID + Thread + زمان نسبی + flush فوری
+    """
+
+    timestamp = time.strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+    pid = os.getpid()
+
+    thread_name = threading.current_thread().name
+
+    print(
+        f"{timestamp} "
+        f"[PID={pid}] "
+        f"[THREAD={thread_name}] "
+        f"{message}",
+        flush=True
+    )
+
+
+# ==================================
 # Global Data
 # ==================================
 
@@ -72,9 +99,14 @@ def get_session():
     تا Connection Pool قابل استفاده مجدد باشد.
     """
 
-    session = getattr(_thread_local, "session", None)
+    session = getattr(
+        _thread_local,
+        "session",
+        None
+    )
 
     if session is None:
+
         session = requests.Session()
 
         session.headers.update({
@@ -82,6 +114,10 @@ def get_session():
         })
 
         _thread_local.session = session
+
+        log(
+            "[SESSION] New HTTP session created."
+        )
 
     return session
 
@@ -114,11 +150,17 @@ def get_audio_download_lock(audio_url):
 
     with _AUDIO_DOWNLOAD_LOCKS_GUARD:
 
-        lock = _AUDIO_DOWNLOAD_LOCKS.get(audio_url)
+        lock = _AUDIO_DOWNLOAD_LOCKS.get(
+            audio_url
+        )
 
         if lock is None:
+
             lock = threading.Lock()
-            _AUDIO_DOWNLOAD_LOCKS[audio_url] = lock
+
+            _AUDIO_DOWNLOAD_LOCKS[
+                audio_url
+            ] = lock
 
         return lock
 
@@ -130,18 +172,25 @@ def get_cached_audio(audio_url):
 
     with _AUDIO_CACHE_LOCK:
 
-        item = _AUDIO_CACHE.get(audio_url)
+        item = _AUDIO_CACHE.get(
+            audio_url
+        )
 
         if item is None:
             return None
 
         # LRU
-        _AUDIO_CACHE.move_to_end(audio_url)
+        _AUDIO_CACHE.move_to_end(
+            audio_url
+        )
 
         return item
 
 
-def cache_audio(audio_url, audio_data):
+def cache_audio(
+    audio_url,
+    audio_data
+):
 
     global _AUDIO_CACHE_BYTES
 
@@ -152,8 +201,9 @@ def cache_audio(audio_url, audio_data):
 
     if data_size > AUDIO_CACHE_MAX_BYTES:
 
-        print(
-            f"[AUDIO CACHE] File too large to cache: "
+        log(
+            f"[AUDIO CACHE] "
+            f"File too large to cache: "
             f"{data_size} bytes"
         )
 
@@ -161,32 +211,49 @@ def cache_audio(audio_url, audio_data):
 
     with _AUDIO_CACHE_LOCK:
 
-        old_data = _AUDIO_CACHE.pop(audio_url, None)
+        old_data = _AUDIO_CACHE.pop(
+            audio_url,
+            None
+        )
 
         if old_data is not None:
-            _AUDIO_CACHE_BYTES -= len(old_data)
+
+            _AUDIO_CACHE_BYTES -= len(
+                old_data
+            )
 
         _AUDIO_CACHE[audio_url] = audio_data
 
         _AUDIO_CACHE_BYTES += data_size
 
         while (
-            len(_AUDIO_CACHE) > AUDIO_CACHE_MAX_ITEMS
-            or _AUDIO_CACHE_BYTES > AUDIO_CACHE_MAX_BYTES
+            len(_AUDIO_CACHE)
+            > AUDIO_CACHE_MAX_ITEMS
+            or _AUDIO_CACHE_BYTES
+            > AUDIO_CACHE_MAX_BYTES
         ):
 
-            _, removed_data = _AUDIO_CACHE.popitem(last=False)
+            _, removed_data = (
+                _AUDIO_CACHE.popitem(
+                    last=False
+                )
+            )
 
-            _AUDIO_CACHE_BYTES -= len(removed_data)
+            _AUDIO_CACHE_BYTES -= len(
+                removed_data
+            )
 
-        print(
-            f"[AUDIO CACHE] Stored: {data_size} bytes | "
+        log(
+            f"[AUDIO CACHE] Stored: "
+            f"{data_size} bytes | "
             f"items={len(_AUDIO_CACHE)} | "
             f"total={_AUDIO_CACHE_BYTES} bytes"
         )
 
 
-def get_negative_audio_cache(audio_url):
+def get_negative_audio_cache(
+    audio_url
+):
 
     if not audio_url:
         return False
@@ -195,21 +262,29 @@ def get_negative_audio_cache(audio_url):
 
     with _AUDIO_NEGATIVE_CACHE_LOCK:
 
-        expires_at = _AUDIO_NEGATIVE_CACHE.get(audio_url)
+        expires_at = (
+            _AUDIO_NEGATIVE_CACHE.get(
+                audio_url
+            )
+        )
 
         if expires_at is None:
             return False
 
         if now >= expires_at:
 
-            del _AUDIO_NEGATIVE_CACHE[audio_url]
+            del _AUDIO_NEGATIVE_CACHE[
+                audio_url
+            ]
 
             return False
 
         return True
 
 
-def set_negative_audio_cache(audio_url):
+def set_negative_audio_cache(
+    audio_url
+):
 
     if not audio_url:
         return
@@ -221,10 +296,13 @@ def set_negative_audio_cache(audio_url):
 
     with _AUDIO_NEGATIVE_CACHE_LOCK:
 
-        _AUDIO_NEGATIVE_CACHE[audio_url] = expires_at
+        _AUDIO_NEGATIVE_CACHE[
+            audio_url
+        ] = expires_at
 
-    print(
-        f"[AUDIO CACHE] Negative cache stored "
+    log(
+        f"[AUDIO CACHE] "
+        f"Negative cache stored "
         f"for {AUDIO_NEGATIVE_CACHE_TTL}s"
     )
 
@@ -254,6 +332,11 @@ MAIN_KEYBOARD = {
 def load_data():
 
     global HAZALS
+
+    log(
+        f"[DATA] Loading data from "
+        f"{DATA_FILE}"
+    )
 
     if not os.path.exists(DATA_FILE):
 
@@ -333,8 +416,9 @@ def load_data():
 
     HAZALS = loaded
 
-    print(
-        f"[DATA] Loaded {len(HAZALS)} ghazals."
+    log(
+        f"[DATA] Loaded "
+        f"{len(HAZALS)} ghazals."
     )
 
 
@@ -351,6 +435,11 @@ def splus_request(
     url = f"{API}/{method}"
 
     started_at = time.perf_counter()
+
+    log(
+        f"[SPLUS START] "
+        f"{method}"
+    )
 
     try:
 
@@ -372,8 +461,9 @@ def splus_request(
 
         if response.ok:
 
-            print(
-                f"[SPLUS] {method}: "
+            log(
+                f"[SPLUS END] "
+                f"{method}: "
                 f"{status_code} | "
                 f"{elapsed:.3f}s"
             )
@@ -382,8 +472,9 @@ def splus_request(
 
             preview = response.text[:300]
 
-            print(
-                f"[SPLUS ERROR] {method}: "
+            log(
+                f"[SPLUS ERROR] "
+                f"{method}: "
                 f"{status_code} | "
                 f"{elapsed:.3f}s | "
                 f"{preview}"
@@ -397,8 +488,9 @@ def splus_request(
 
         except ValueError:
 
-            print(
-                f"[SPLUS ERROR] {method}: "
+            log(
+                f"[SPLUS ERROR] "
+                f"{method}: "
                 f"Invalid JSON response | "
                 f"{elapsed:.3f}s"
             )
@@ -414,8 +506,9 @@ def splus_request(
             - started_at
         )
 
-        print(
-            f"[SPLUS TIMEOUT] {method}: "
+        log(
+            f"[SPLUS TIMEOUT] "
+            f"{method}: "
             f"{elapsed:.3f}s | "
             f"{e}"
         )
@@ -429,8 +522,9 @@ def splus_request(
             - started_at
         )
 
-        print(
-            f"[SPLUS ERROR] {method}: "
+        log(
+            f"[SPLUS ERROR] "
+            f"{method}: "
             f"{elapsed:.3f}s | "
             f"{e}"
         )
@@ -444,8 +538,9 @@ def splus_request(
             - started_at
         )
 
-        print(
-            f"[SPLUS ERROR] {method}: "
+        log(
+            f"[SPLUS ERROR] "
+            f"{method}: "
             f"{elapsed:.3f}s | "
             f"{e}"
         )
@@ -660,13 +755,13 @@ def send_fortune(
         record
     )
 
-    print(
+    log(
         f"[FORTUNE] Ghazal "
         f"#{get_ghazal_number(record)} "
         f"record={record.get('record_id')}"
     )
 
-    print(
+    log(
         f"[FORTUNE] Final text length="
         f"{len(fortune_text)}"
     )
@@ -675,7 +770,7 @@ def send_fortune(
         fortune_text
     )
 
-    print(
+    log(
         f"[MESSAGE] length="
         f"{len(fortune_text)} "
         f"chunks={len(chunks)}"
@@ -712,14 +807,14 @@ def download_audio(audio_url):
 
     if cached is not None:
 
-        print(
+        log(
             f"[AUDIO CACHE] HIT: "
             f"{audio_url}"
         )
 
         return cached
 
-    print(
+    log(
         f"[AUDIO CACHE] MISS: "
         f"{audio_url}"
     )
@@ -732,7 +827,7 @@ def download_audio(audio_url):
         audio_url
     ):
 
-        print(
+        log(
             f"[AUDIO CACHE] "
             f"NEGATIVE HIT: "
             f"{audio_url}"
@@ -759,8 +854,9 @@ def download_audio(audio_url):
 
         if cached is not None:
 
-            print(
-                f"[AUDIO CACHE] HIT AFTER LOCK: "
+            log(
+                f"[AUDIO CACHE] "
+                f"HIT AFTER LOCK: "
                 f"{audio_url}"
             )
 
@@ -772,7 +868,7 @@ def download_audio(audio_url):
             audio_url
         ):
 
-            print(
+            log(
                 f"[AUDIO CACHE] "
                 f"NEGATIVE HIT AFTER LOCK: "
                 f"{audio_url}"
@@ -780,7 +876,7 @@ def download_audio(audio_url):
 
             return None
 
-        print(
+        log(
             f"[AUDIO] Downloading ONLY "
             f"user's source: {audio_url}"
         )
@@ -803,7 +899,7 @@ def download_audio(audio_url):
 
             if response.status_code == 404:
 
-                print(
+                log(
                     f"[AUDIO] HTTP 404 | "
                     f"{elapsed:.3f}s"
                 )
@@ -820,14 +916,15 @@ def download_audio(audio_url):
 
             if not content:
 
-                print(
-                    f"[AUDIO] Empty audio response | "
+                log(
+                    f"[AUDIO] "
+                    f"Empty audio response | "
                     f"{elapsed:.3f}s"
                 )
 
                 return None
 
-            print(
+            log(
                 f"[AUDIO] Downloaded "
                 f"{len(content)} bytes | "
                 f"{elapsed:.3f}s"
@@ -847,7 +944,7 @@ def download_audio(audio_url):
                 - started_at
             )
 
-            print(
+            log(
                 f"[AUDIO TIMEOUT] "
                 f"{elapsed:.3f}s | "
                 f"{e}"
@@ -862,7 +959,7 @@ def download_audio(audio_url):
                 - started_at
             )
 
-            print(
+            log(
                 f"[AUDIO ERROR] "
                 f"{elapsed:.3f}s | "
                 f"{e}"
@@ -877,7 +974,7 @@ def download_audio(audio_url):
                 - started_at
             )
 
-            print(
+            log(
                 f"[AUDIO ERROR] "
                 f"{elapsed:.3f}s | "
                 f"{e}"
@@ -901,7 +998,7 @@ def send_audio(
 
     if not audio_url:
 
-        print(
+        log(
             f"[AUDIO] No audio in "
             f"user's source for ghazal "
             f"#{get_ghazal_number(record)}"
@@ -909,7 +1006,7 @@ def send_audio(
 
         return
 
-    print(
+    log(
         f"[AUDIO] Ghazal "
         f"#{get_ghazal_number(record)} "
         f"source={audio_url}"
@@ -921,7 +1018,7 @@ def send_audio(
 
     if not audio_data:
 
-        print(
+        log(
             "[AUDIO] Audio unavailable. "
             "Nothing will be sent."
         )
@@ -959,7 +1056,7 @@ def send_audio(
 
     if result and result.get("ok"):
 
-        print(
+        log(
             f"[AUDIO] Sent successfully "
             f"for ghazal "
             f"#{get_ghazal_number(record)}"
@@ -967,7 +1064,7 @@ def send_audio(
 
     else:
 
-        print(
+        log(
             f"[AUDIO] Failed to send "
             f"ghazal "
             f"#{get_ghazal_number(record)}"
@@ -982,9 +1079,18 @@ def process_fortune(chat_id):
 
     process_started_at = time.perf_counter()
 
+    log(
+        f"[FORTUNE START] "
+        f"chat_id={chat_id}"
+    )
+
     try:
 
         if not HAZALS:
+
+            log(
+                "[FORTUNE] HAZALS is empty."
+            )
 
             send_message(
                 chat_id,
@@ -998,7 +1104,7 @@ def process_fortune(chat_id):
             HAZALS
         )
 
-        print(
+        log(
             f"[FORTUNE] Selected ghazal "
             f"#{get_ghazal_number(record)} "
             f"record={record.get('record_id')}"
@@ -1007,6 +1113,10 @@ def process_fortune(chat_id):
         # ------------------------------
         # Temporary Message
         # ------------------------------
+
+        log(
+            "[FORTUNE] Sending temporary message..."
+        )
 
         result = send_message(
             chat_id,
@@ -1025,13 +1135,30 @@ def process_fortune(chat_id):
                     result["result"]["message_id"]
                 )
 
+                log(
+                    f"[FORTUNE] "
+                    f"Temporary message id="
+                    f"{temporary_message_id}"
+                )
+
             except Exception:
 
                 temporary_message_id = None
 
+                log(
+                    "[FORTUNE] "
+                    "Temporary message ID "
+                    "could not be extracted."
+                )
+
         # ------------------------------
         # Preserve Existing UX Delay
         # ------------------------------
+
+        log(
+            f"[FORTUNE] "
+            f"Sleeping {FORTUNE_DELAY}s..."
+        )
 
         time.sleep(
             FORTUNE_DELAY
@@ -1043,6 +1170,11 @@ def process_fortune(chat_id):
 
         if temporary_message_id:
 
+            log(
+                "[FORTUNE] "
+                "Deleting temporary message..."
+            )
+
             delete_message(
                 chat_id,
                 temporary_message_id
@@ -1052,23 +1184,43 @@ def process_fortune(chat_id):
         # Fortune Text
         # ------------------------------
 
+        log(
+            "[FORTUNE] "
+            "Sending fortune text..."
+        )
+
         send_fortune(
             chat_id,
             record
+        )
+
+        log(
+            "[FORTUNE] "
+            "Fortune text completed."
         )
 
         # ------------------------------
         # Audio
         # ------------------------------
 
+        log(
+            "[FORTUNE] "
+            "Starting audio..."
+        )
+
         send_audio(
             chat_id,
             record
         )
 
+        log(
+            "[FORTUNE] "
+            "Audio stage completed."
+        )
+
     except Exception as e:
 
-        print(
+        log(
             f"[FORTUNE ERROR] {e}"
         )
 
@@ -1079,8 +1231,8 @@ def process_fortune(chat_id):
             - process_started_at
         )
 
-        print(
-            f"[FORTUNE TIMING] "
+        log(
+            f"[FORTUNE END] "
             f"Total process time: "
             f"{total_elapsed:.3f}s"
         )
@@ -1096,17 +1248,27 @@ def process_fortune(chat_id):
 )
 def webhook():
 
+    webhook_started_at = time.perf_counter()
+
+    log(
+        "[WEBHOOK START]"
+    )
+
     try:
 
         update = request.get_json(
             silent=True
         )
 
-        print(
+        log(
             f"[UPDATE] {update}"
         )
 
         if not update:
+
+            log(
+                "[WEBHOOK END] Empty update."
+            )
 
             return "OK"
 
@@ -1115,6 +1277,11 @@ def webhook():
         )
 
         if not message:
+
+            log(
+                "[WEBHOOK END] "
+                "No message in update."
+            )
 
             return "OK"
 
@@ -1134,9 +1301,14 @@ def webhook():
 
         if not chat_id:
 
+            log(
+                "[WEBHOOK END] "
+                "No chat_id."
+            )
+
             return "OK"
 
-        print(
+        log(
             f"[MESSAGE] "
             f"chat_id={chat_id} "
             f"text={text!r}"
@@ -1148,12 +1320,28 @@ def webhook():
 
         if text.strip() == "/start":
 
+            log(
+                "[WEBHOOK] "
+                "Processing /start..."
+            )
+
             send_message(
                 chat_id,
                 "🌿 به فال حافظ خوش آمدید.\n\n"
                 "برای گرفتن فال، دکمه "
                 "«📜 فال حافظ» را بزنید.",
                 reply_markup=MAIN_KEYBOARD
+            )
+
+            elapsed = (
+                time.perf_counter()
+                - webhook_started_at
+            )
+
+            log(
+                f"[WEBHOOK END] "
+                f"/start completed in "
+                f"{elapsed:.3f}s"
             )
 
             return "OK"
@@ -1167,20 +1355,60 @@ def webhook():
             "📜 فال حافظ"
         ):
 
+            log(
+                "[WEBHOOK] "
+                "Fortune request received."
+            )
+
             thread = threading.Thread(
                 target=process_fortune,
                 args=(chat_id,),
-                daemon=True
+                daemon=True,
+                name=f"fortune-{chat_id}"
+            )
+
+            log(
+                f"[WEBHOOK] "
+                f"Starting fortune thread "
+                f"name={thread.name}"
             )
 
             thread.start()
+
+            log(
+                f"[WEBHOOK] "
+                f"Fortune thread started | "
+                f"alive={thread.is_alive()}"
+            )
+
+        elapsed = (
+            time.perf_counter()
+            - webhook_started_at
+        )
+
+        log(
+            f"[WEBHOOK END] "
+            f"completed in "
+            f"{elapsed:.3f}s"
+        )
 
         return "OK"
 
     except Exception as e:
 
-        print(
+        log(
             f"[WEBHOOK ERROR] {e}"
+        )
+
+        elapsed = (
+            time.perf_counter()
+            - webhook_started_at
+        )
+
+        log(
+            f"[WEBHOOK END] "
+            f"with error after "
+            f"{elapsed:.3f}s"
         )
 
         return "OK"
@@ -1196,6 +1424,10 @@ def webhook():
 )
 def home():
 
+    log(
+        "[HEALTH] Home/Health request received."
+    )
+
     return "Hafez Bot is running."
 
 
@@ -1205,7 +1437,7 @@ def home():
 
 def set_webhook():
 
-    print(
+    log(
         f"[WEBHOOK] Setting webhook: "
         f"{WEBHOOK_URL}"
     )
@@ -1217,7 +1449,7 @@ def set_webhook():
         }
     )
 
-    print(
+    log(
         f"[WEBHOOK RESULT] {result}"
     )
 
@@ -1226,15 +1458,24 @@ def set_webhook():
 # Startup
 # ==================================
 
+log(
+    "[STARTUP] Bot process starting..."
+)
+
 try:
 
     load_data()
 
 except Exception as e:
 
-    print(
+    log(
         f"[DATA ERROR] {e}"
     )
+
+
+log(
+    "[STARTUP] Bot initialization completed."
+)
 
 
 # ==================================
@@ -1242,6 +1483,10 @@ except Exception as e:
 # ==================================
 
 if __name__ == "__main__":
+
+    log(
+        "[LOCAL RUN] Starting local application..."
+    )
 
     set_webhook()
 
@@ -1255,4 +1500,4 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=port
-            )
+    )
