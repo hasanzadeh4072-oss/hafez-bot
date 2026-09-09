@@ -766,7 +766,8 @@ def build_fortune(record):
 
 def send_fortune(
     chat_id,
-    record
+    record,
+    reply_markup=None
 ):
 
     fortune_text = build_fortune(
@@ -794,12 +795,23 @@ def send_fortune(
         f"chunks={len(chunks)}"
     )
 
-    for chunk in chunks:
+    for index, chunk in enumerate(chunks):
 
-        send_message(
-            chat_id,
-            chunk
-        )
+        # دکمه فال دیگر فقط روی آخرین پیام شعر قرار می‌گیرد
+        if index == len(chunks) - 1:
+
+            send_message(
+                chat_id,
+                chunk,
+                reply_markup=reply_markup
+            )
+
+        else:
+
+            send_message(
+                chat_id,
+                chunk
+            )
 
         if len(chunks) > 1:
 
@@ -1209,7 +1221,8 @@ def process_fortune(chat_id):
 
         send_fortune(
             chat_id,
-            record
+            record,
+            reply_markup=REPEAT_FORTUNE_KEYBOARD
         )
 
         log(
@@ -1234,21 +1247,6 @@ def process_fortune(chat_id):
         log(
             "[FORTUNE] "
             "Audio stage completed."
-        )
-
-        # ------------------------------
-        # Repeat Fortune Button
-        # ------------------------------
-
-        log(
-            "[FORTUNE] "
-            "Showing repeat fortune button..."
-        )
-
-        send_message(
-            chat_id,
-            "🌿 برای گرفتن فال دیگری، نیت کنید.",
-            reply_markup=REPEAT_FORTUNE_KEYBOARD
         )
 
     except Exception as e:
@@ -1568,4 +1566,4 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=port
-  )
+)
