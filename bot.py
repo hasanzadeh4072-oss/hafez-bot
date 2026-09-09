@@ -26,164 +26,48 @@ if not TOKEN:
 API = f"https://api.splus.ir/bot{TOKEN}"
 
 WEBHOOK_URL = "https://hafez-bot.onrender.com/webhook"
-
 DATA_FILE = "HafezFilebot.json"
-
 CHANNEL_URL = "https://splus.ir/@LIFE_M23"
 
 MAX_MESSAGE_LENGTH = 4000
 
-# زمان اتصال و دریافت پاسخ جداگانه
 CONNECT_TIMEOUT = 5
 READ_TIMEOUT = 15
-
-REQUEST_TIMEOUT = (
-    CONNECT_TIMEOUT,
-    READ_TIMEOUT
-)
+REQUEST_TIMEOUT = (CONNECT_TIMEOUT, READ_TIMEOUT)
 
 
-# ----------------------------------
+# ==================================
 # Audio Cache
-# ----------------------------------
+# ==================================
 
 AUDIO_CACHE_MAX_ITEMS = 5
 AUDIO_CACHE_MAX_BYTES = 50 * 1024 * 1024
-
-# مدت نگهداری خطاهای صوت
 AUDIO_NEGATIVE_CACHE_TTL = 10 * 60
-
-# مدت نگهداری URL صوتی‌ای که از صفحه گنجور پیدا شده
 AUDIO_URL_CACHE_TTL = 60 * 60
 
+_AUDIO_CACHE = OrderedDict()
+_AUDIO_CACHE_BYTES = 0
+_AUDIO_CACHE_LOCK = threading.RLock()
 
-# ==================================
-# Logging
-# ==================================
+_AUDIO_DOWNLOAD_LOCKS = {}
+_AUDIO_DOWNLOAD_LOCKS_GUARD = threading.Lock()
 
-def log(message):
+_AUDIO_NEGATIVE_CACHE = {}
+_AUDIO_NEGATIVE_LOCK = threading.Lock()
 
-    timestamp = time.strftime(
-        "%Y-%m-%d %H:%M:%S"
-    )
+_AUDIO_URL_CACHE = {}
+_AUDIO_URL_CACHE_LOCK = threading.Lock()
 
-    pid = os.getpid()
+_AUDIO_RESOLVE_LOCKS = {}
+_AUDIO_RESOLVE_LOCKS_GUARD = threading.Lock()
 
-    thread_name = threading.current_thread().name
-
-    print(
-        f"{timestamp} "
-        f"[PID={pid}] "
-        f"[THREAD={thread_name}] "
-        f"{message}",
-        flush=True
-    )
-
-
-# ==================================
-# Global Data
-# ==================================
-
-HAZALS = []
-
-
-# ==================================
-# Control Message State
-# ==================================
-
-CHAT_CONTROL_MESSAGES = {}
-
-CHAT_CONTROL_LOCK = threading.Lock()
-
-
-def set_chat_control_message(
-    chat_id,
-    key,
-    message_id
-):
-
-    with CHAT_CONTROL_LOCK:
-
-        state = CHAT_CONTROL_MESSAGES.setdefault(
-            str(chat_id),
-            {}
-        )
-
-        state[key] = message_id
-
-
-def get_chat_control_message(
-    chat_id,
-    key
-):
-
-    with CHAT_CONTROL_LOCK:
-
-        state = CHAT_CONTROL_MESSAGES.get(
-            str(chat_id),
-            {}
-        )
-
-        return state.get(key)
-
-
-def remove_chat_control_message(
-    chat_id,
-    key
-):
-
-    with CHAT_CONTROL_LOCK:
-
-        state = CHAT_CONTROL_MESSAGES.get(
-            str(chat_id)
-        )
-
-        if not state:
-            return None
-
-        message_id = state.pop(
-            key,
-            None
-        )
-
-        if not state:
-
-            CHAT_CONTROL_MESSAGES.pop(
-                str(chat_id),
-                None
-            )
-
-        return message_id
-
-
-def clear_chat_control_message(
-    chat_id,
-    key
-):
-
-    return remove_chat_control_message(
-        chat_id,
-        key
-    )
-
-
-# ==================================
-# HTTP Session
-# ==================================
-
-_thread_local = threading.local()
+_THREAD_LOCAL = threading.local()
 
 
 def get_session():
-
-    session = getattr(
-        _thread_local,
-        "session",
-        None
-    )
+    session = getattr(_THREAD_LOCAL, "session", None)
 
     if session is None:
-
         session = requests.Session()
 
         session.headers.update({
@@ -193,294 +77,126 @@ def get_session():
             )
         })
 
-        _thread_local.session = session
-
-        log(
-            "[SESSION] New HTTP session created."
-        )
+        _THREAD_LOCAL.session = session
 
     return session
 
 
-# ==================================
-# Audio Cache
-# ==================================
-
-_AUDIO_CACHE = OrderedDict()
-
-_AUDIO_CACHE_BYTES = 0
-
-_AUDIO_CACHE_LOCK = threading.Lock()
-
-
-_AUDIO_DOWNLOAD_LOCKS = {}
-
-_AUDIO_DOWNLOAD_LOCKS_GUARD = threading.Lock()
-
-
-_AUDIO_NEGATIVE_CACHE = {}
-
-_AUDIO_NEGATIVE_CACHE_LOCK = threading.Lock()
-
-
-# ----------------------------------
-# Resolved Audio URL Cache
-# ----------------------------------
-
-_AUDIO_URL_CACHE = {}
-
-_AUDIO_URL_CACHE_LOCK = threading.Lock()
-
-_AUDIO_URL_DOWNLOAD_LOCKS = {}
-
-_AUDIO_URL_DOWNLOAD_LOCKS_GUARD = threading.Lock()
-
-
 def get_audio_download_lock(audio_url):
-
     with _AUDIO_DOWNLOAD_LOCKS_GUARD:
-
-        lock = _AUDIO_DOWNLOAD_LOCKS.get(
-            audio_url
-        )
+        lock = _AUDIO_DOWNLOAD_LOCKS.get(audio_url)
 
         if lock is None:
-
             lock = threading.Lock()
-
-            _AUDIO_DOWNLOAD_LOCKS[
-                audio_url
-            ] = lock
+            _AUDIO_DOWNLOAD_LOCKS[audio_url] = lock
 
         return lock
 
 
-def get_audio_url_resolve_lock(source_url):
-
-    with _AUDIO_URL_DOWNLOAD_LOCKS_GUARD:
-
-        lock = _AUDIO_URL_DOWNLOAD_LOCKS.get(
-            source_url
-        )
+def get_audio_resolve_lock(source_url):
+    with _AUDIO_RESOLVE_LOCKS_GUARD:
+        lock = _AUDIO_RESOLVE_LOCKS.get(source_url)
 
         if lock is None:
-
             lock = threading.Lock()
-
-            _AUDIO_URL_DOWNLOAD_LOCKS[
-                source_url
-            ] = lock
+            _AUDIO_RESOLVE_LOCKS[source_url] = lock
 
         return lock
 
 
-def get_cached_audio(audio_url):
-
-    if not audio_url:
-        return None
+def audio_cache_get(audio_url):
+    global _AUDIO_CACHE_BYTES
 
     with _AUDIO_CACHE_LOCK:
-
-        item = _AUDIO_CACHE.get(
-            audio_url
-        )
+        item = _AUDIO_CACHE.get(audio_url)
 
         if item is None:
             return None
 
-        _AUDIO_CACHE.move_to_end(
-            audio_url
-        )
+        _AUDIO_CACHE.move_to_end(audio_url)
 
         return item
 
 
-def cache_audio(
-    audio_url,
-    audio_data
-):
-
+def audio_cache_put(audio_url, data):
     global _AUDIO_CACHE_BYTES
 
-    if not audio_url or not audio_data:
+    if not data:
         return
 
-    data_size = len(
-        audio_data
-    )
+    size = len(data)
 
-    if data_size > AUDIO_CACHE_MAX_BYTES:
-
-        log(
-            "[AUDIO CACHE] "
-            f"File too large to cache: "
-            f"{data_size} bytes"
-        )
-
+    if size > AUDIO_CACHE_MAX_BYTES:
         return
 
     with _AUDIO_CACHE_LOCK:
+        old = _AUDIO_CACHE.pop(audio_url, None)
 
-        old_data = _AUDIO_CACHE.pop(
-            audio_url,
-            None
-        )
+        if old is not None:
+            _AUDIO_CACHE_BYTES -= len(old)
 
-        if old_data is not None:
-
-            _AUDIO_CACHE_BYTES -= len(
-                old_data
-            )
-
-        _AUDIO_CACHE[audio_url] = audio_data
-
-        _AUDIO_CACHE_BYTES += data_size
+        _AUDIO_CACHE[audio_url] = data
+        _AUDIO_CACHE_BYTES += size
 
         while (
-            len(_AUDIO_CACHE)
-            > AUDIO_CACHE_MAX_ITEMS
-            or
-            _AUDIO_CACHE_BYTES
-            > AUDIO_CACHE_MAX_BYTES
+            len(_AUDIO_CACHE) > AUDIO_CACHE_MAX_ITEMS
+            or _AUDIO_CACHE_BYTES > AUDIO_CACHE_MAX_BYTES
         ):
-
-            _, removed_data = (
-                _AUDIO_CACHE.popitem(
-                    last=False
-                )
-            )
-
-            _AUDIO_CACHE_BYTES -= len(
-                removed_data
-            )
-
-        log(
-            "[AUDIO CACHE] Stored: "
-            f"{data_size} bytes | "
-            f"items={len(_AUDIO_CACHE)} | "
-            f"total={_AUDIO_CACHE_BYTES} bytes"
-        )
+            _, removed = _AUDIO_CACHE.popitem(last=False)
+            _AUDIO_CACHE_BYTES -= len(removed)
 
 
-def get_negative_audio_cache(
-    audio_url
-):
+def negative_cache_get(audio_url):
+    now = time.time()
 
-    if not audio_url:
-        return False
-
-    now = time.monotonic()
-
-    with _AUDIO_NEGATIVE_CACHE_LOCK:
-
-        expires_at = (
-            _AUDIO_NEGATIVE_CACHE.get(
-                audio_url
-            )
-        )
+    with _AUDIO_NEGATIVE_LOCK:
+        expires_at = _AUDIO_NEGATIVE_CACHE.get(audio_url)
 
         if expires_at is None:
             return False
 
-        if now >= expires_at:
-
-            del _AUDIO_NEGATIVE_CACHE[
-                audio_url
-            ]
-
+        if expires_at <= now:
+            _AUDIO_NEGATIVE_CACHE.pop(audio_url, None)
             return False
 
         return True
 
 
-def set_negative_audio_cache(
-    audio_url
-):
-
-    if not audio_url:
-        return
-
-    expires_at = (
-        time.monotonic()
-        + AUDIO_NEGATIVE_CACHE_TTL
-    )
-
-    with _AUDIO_NEGATIVE_CACHE_LOCK:
-
-        _AUDIO_NEGATIVE_CACHE[
-            audio_url
-        ] = expires_at
-
-    log(
-        "[AUDIO CACHE] "
-        "Negative cache stored "
-        f"for {AUDIO_NEGATIVE_CACHE_TTL}s"
-    )
-
-
-# ==================================
-# Resolved Audio URL Cache Functions
-# ==================================
-
-def get_cached_audio_url(source_url):
-
-    if not source_url:
-        return None
-
-    now = time.monotonic()
-
-    with _AUDIO_URL_CACHE_LOCK:
-
-        item = _AUDIO_URL_CACHE.get(
-            source_url
+def negative_cache_put(audio_url):
+    with _AUDIO_NEGATIVE_LOCK:
+        _AUDIO_NEGATIVE_CACHE[audio_url] = (
+            time.time() + AUDIO_NEGATIVE_CACHE_TTL
         )
 
-        if not item:
+
+def audio_url_cache_get(source_url):
+    now = time.time()
+
+    with _AUDIO_URL_CACHE_LOCK:
+        item = _AUDIO_URL_CACHE.get(source_url)
+
+        if item is None:
             return None
 
         audio_url, expires_at = item
 
-        if now >= expires_at:
-
-            del _AUDIO_URL_CACHE[
-                source_url
-            ]
-
+        if expires_at <= now:
+            _AUDIO_URL_CACHE.pop(source_url, None)
             return None
 
         return audio_url
 
 
-def cache_audio_url(
-    source_url,
-    audio_url
-):
-
-    if not source_url or not audio_url:
-        return
-
-    expires_at = (
-        time.monotonic()
-        + AUDIO_URL_CACHE_TTL
-    )
-
+def audio_url_cache_put(source_url, audio_url):
     with _AUDIO_URL_CACHE_LOCK:
-
-        _AUDIO_URL_CACHE[
-            source_url
-        ] = (
+        _AUDIO_URL_CACHE[source_url] = (
             audio_url,
-            expires_at
+            time.time() + AUDIO_URL_CACHE_TTL
         )
-
-    log(
-        "[AUDIO URL CACHE] Stored: "
-        f"{audio_url}"
-    )
 
 
 # ==================================
-# Keyboard
+# Keyboards
 # ==================================
 
 MAIN_KEYBOARD = {
@@ -512,91 +228,115 @@ REPEAT_FORTUNE_KEYBOARD = {
 
 
 # ==================================
+# Global Data
+# ==================================
+
+HAZALS = []
+
+
+# ==================================
+# Chat Control Message State
+# ==================================
+
+CHAT_CONTROL_MESSAGES = {}
+CHAT_CONTROL_LOCK = threading.Lock()
+
+
+def set_chat_control_message(chat_id, message_id):
+    with CHAT_CONTROL_LOCK:
+        CHAT_CONTROL_MESSAGES[chat_id] = message_id
+
+
+def get_chat_control_message(chat_id):
+    with CHAT_CONTROL_LOCK:
+        return CHAT_CONTROL_MESSAGES.get(chat_id)
+
+
+def remove_chat_control_message(chat_id):
+    with CHAT_CONTROL_LOCK:
+        return CHAT_CONTROL_MESSAGES.pop(chat_id, None)
+
+
+def clear_chat_control_message(chat_id, message_id=None):
+    with CHAT_CONTROL_LOCK:
+        current = CHAT_CONTROL_MESSAGES.get(chat_id)
+
+        if message_id is None or current == message_id:
+            CHAT_CONTROL_MESSAGES.pop(chat_id, None)
+
+
+# ==================================
 # Data Loading
 # ==================================
 
 def load_data():
-
     global HAZALS
 
-    log(
-        f"[DATA] Loading data from "
-        f"{DATA_FILE}"
-    )
-
     if not os.path.exists(DATA_FILE):
-
         raise FileNotFoundError(
             f"Data file not found: {DATA_FILE}"
         )
 
-    with open(
-        DATA_FILE,
-        "r",
-        encoding="utf-8"
-    ) as f:
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
 
-        raw_data = json.load(f)
+    if not isinstance(data, list):
+        raise ValueError(
+            "HafezFilebot.json must contain a top-level list."
+        )
 
     loaded = []
 
-    for item in raw_data:
-
+    for item in data:
         if not isinstance(item, dict):
             continue
 
         for record_id, record in item.items():
-
             if not isinstance(record, dict):
                 continue
 
-            poem = str(
-                record.get("Poem") or ""
-            ).strip()
+            poem = record.get("Poem")
+
+            if not isinstance(poem, str):
+                continue
+
+            poem = poem.strip()
 
             if not poem:
                 continue
 
-            title = str(
-                record.get("Title") or ""
-            ).strip()
+            title = record.get("Title")
 
-            source = str(
-                record.get("Source") or ""
-            ).strip()
+            if not isinstance(title, str):
+                title = ""
+
+            source = record.get("Source")
+
+            if not isinstance(source, str):
+                source = ""
 
             audio = record.get("Audio")
 
-            if isinstance(audio, str):
-
-                audio = audio.strip()
-
-                if not audio:
-                    audio = None
-
-            else:
-
+            if not isinstance(audio, str):
                 audio = None
+
+            author = record.get("Author")
+
+            if not isinstance(author, str) or not author.strip():
+                author = "حافظ"
+
+            book = record.get("Book")
+
+            if not isinstance(book, str) or not book.strip():
+                book = "غزلیات حافظ"
 
             loaded.append({
                 "record_id": str(record_id),
-
-                "author": record.get(
-                    "Author",
-                    "حافظ"
-                ),
-
-                "book": record.get(
-                    "Book",
-                    "غزلیات حافظ"
-                ),
-
+                "author": author,
+                "book": book,
                 "poem": poem,
-
                 "source": source,
-
                 "title": title,
-
                 "audio": audio,
             })
 
@@ -604,175 +344,72 @@ def load_data():
 
     audio_count = sum(
         1
-        for item in HAZALS
-        if item.get("audio")
+        for record in HAZALS
+        if record.get("audio")
     )
 
-    missing_audio_count = (
-        len(HAZALS)
-        - audio_count
-    )
-
-    log(
-        f"[DATA] Loaded "
-        f"{len(HAZALS)} ghazals."
-    )
-
-    log(
-        f"[DATA] Audio field present: "
-        f"{audio_count}"
-    )
-
-    log(
-        f"[DATA] Audio field missing: "
-        f"{missing_audio_count}"
+    print(
+        f"[DATA] Total ghazals: {len(HAZALS)} | "
+        f"Audio present: {audio_count} | "
+        f"Audio missing: {len(HAZALS) - audio_count}"
     )
 
 
 # ==================================
-# Soroush API Request
+# Soroush API
 # ==================================
 
-def splus_request(
-    method,
-    data=None,
-    files=None
-):
-
+def splus_request(method, data=None, files=None):
     url = f"{API}/{method}"
 
-    started_at = time.perf_counter()
-
-    log(
-        f"[SPLUS START] {method}"
-    )
+    start = time.perf_counter()
 
     try:
+        print(
+            f"[API] START {method}"
+        )
 
-        session = get_session()
-
-        response = session.post(
+        response = get_session().post(
             url,
             data=data,
             files=files,
             timeout=REQUEST_TIMEOUT
         )
 
-        elapsed = (
-            time.perf_counter()
-            - started_at
+        elapsed = time.perf_counter() - start
+
+        print(
+            f"[API] END {method} "
+            f"status={response.status_code} "
+            f"time={elapsed:.3f}s"
         )
-
-        status_code = response.status_code
-
-        if response.ok:
-
-            log(
-                f"[SPLUS END] "
-                f"{method}: "
-                f"{status_code} | "
-                f"{elapsed:.3f}s"
-            )
-
-        else:
-
-            preview = response.text[:300]
-
-            log(
-                f"[SPLUS ERROR] "
-                f"{method}: "
-                f"{status_code} | "
-                f"{elapsed:.3f}s | "
-                f"{preview}"
-            )
-
-        response.raise_for_status()
 
         try:
-
-            result = response.json()
-
-        except ValueError:
-
-            log(
-                f"[SPLUS ERROR] "
-                f"{method}: "
-                f"Invalid JSON response | "
-                f"{elapsed:.3f}s"
-            )
-
+            return response.json()
+        except Exception:
             return None
 
-        return result
+    except Exception as exc:
+        elapsed = time.perf_counter() - start
 
-    except requests.Timeout as e:
-
-        elapsed = (
-            time.perf_counter()
-            - started_at
-        )
-
-        log(
-            f"[SPLUS TIMEOUT] "
-            f"{method}: "
-            f"{elapsed:.3f}s | "
-            f"{e}"
-        )
-
-        return None
-
-    except requests.RequestException as e:
-
-        elapsed = (
-            time.perf_counter()
-            - started_at
-        )
-
-        log(
-            f"[SPLUS ERROR] "
-            f"{method}: "
-            f"{elapsed:.3f}s | "
-            f"{e}"
-        )
-
-        return None
-
-    except Exception as e:
-
-        elapsed = (
-            time.perf_counter()
-            - started_at
-        )
-
-        log(
-            f"[SPLUS ERROR] "
-            f"{method}: "
-            f"{elapsed:.3f}s | "
-            f"{e}"
+        print(
+            f"[API] ERROR {method} "
+            f"time={elapsed:.3f}s "
+            f"error={exc}"
         )
 
         return None
 
 
 # ==================================
-# Delete Message
+# Messages
 # ==================================
 
-def delete_message(
-    chat_id,
-    message_id
-):
+def delete_message(chat_id, message_id):
+    if not message_id:
+        return
 
-    if not chat_id or not message_id:
-        return False
-
-    log(
-        f"[DELETE] "
-        f"chat_id={chat_id} "
-        f"message_id={message_id}"
-    )
-
-    result = splus_request(
+    splus_request(
         "deleteMessage",
         data={
             "chat_id": chat_id,
@@ -780,62 +417,15 @@ def delete_message(
         }
     )
 
-    if result and result.get("ok"):
 
-        log(
-            f"[DELETE] Success | "
-            f"message_id={message_id}"
-        )
+def delete_control_message(chat_id):
+    message_id = remove_chat_control_message(chat_id)
 
-        return True
-
-    log(
-        f"[DELETE] Failed | "
-        f"message_id={message_id}"
-    )
-
-    return False
+    if message_id:
+        delete_message(chat_id, message_id)
 
 
-def delete_control_message(
-    chat_id,
-    key
-):
-
-    message_id = get_chat_control_message(
-        chat_id,
-        key
-    )
-
-    if not message_id:
-        return
-
-    success = delete_message(
-        chat_id,
-        message_id
-    )
-
-    if success:
-
-        clear_chat_control_message(
-            chat_id,
-            key
-        )
-
-
-# ==================================
-# Send Message
-# ==================================
-
-def send_message(
-    chat_id,
-    text,
-    reply_markup=None
-):
-
-    if not text:
-        return None
-
+def send_message(chat_id, text, reply_markup=None):
     data = {
         "chat_id": chat_id,
         "text": text,
@@ -843,11 +433,9 @@ def send_message(
     }
 
     if reply_markup is not None:
-
         data["reply_markup"] = json.dumps(
             reply_markup,
-            ensure_ascii=False,
-            separators=(",", ":")
+            ensure_ascii=False
         )
 
     return splus_request(
@@ -856,41 +444,29 @@ def send_message(
     )
 
 
-# ==================================
-# Split Message
-# ==================================
-
-def split_message(
-    text,
-    max_length=MAX_MESSAGE_LENGTH
-):
-
-    if len(text) <= max_length:
+def split_message(text):
+    if len(text) <= MAX_MESSAGE_LENGTH:
         return [text]
 
     chunks = []
+    remaining = text
 
-    remaining = text.strip()
-
-    while len(remaining) > max_length:
-
+    while len(remaining) > MAX_MESSAGE_LENGTH:
         cut = remaining.rfind(
             "\n",
             0,
-            max_length
+            MAX_MESSAGE_LENGTH
         )
 
-        if cut < 1000:
-
+        if cut <= 0:
             cut = remaining.rfind(
                 " ",
                 0,
-                max_length
+                MAX_MESSAGE_LENGTH
             )
 
-        if cut < 1:
-
-            cut = max_length
+        if cut <= 0:
+            cut = MAX_MESSAGE_LENGTH
 
         chunks.append(
             remaining[:cut].strip()
@@ -899,10 +475,7 @@ def split_message(
         remaining = remaining[cut:].strip()
 
     if remaining:
-
-        chunks.append(
-            remaining
-        )
+        chunks.append(remaining)
 
     return chunks
 
@@ -912,850 +485,388 @@ def split_message(
 # ==================================
 
 def get_ghazal_number(record):
-
-    title = record.get(
-        "title",
-        ""
-    )
-
-    source = record.get(
-        "source",
-        ""
-    )
-
-    if source:
-
-        match = re.search(
-            r"/sh(\d+)/?",
-            source
-        )
-
-        if match:
-
-            return match.group(1)
+    source = record.get("source", "")
 
     match = re.search(
-        r"(\d+)",
+        r"/sh(\d+)",
+        source
+    )
+
+    if match:
+        return match.group(1)
+
+    title = record.get("title", "")
+
+    match = re.search(
+        r"\d+",
         title
     )
 
     if match:
+        return match.group(0)
 
-        return match.group(1)
-
-    return record.get(
-        "record_id",
-        "نامشخص"
-    )
+    return record.get("record_id", "")
 
 
 # ==================================
-# Clean Poem
+# Poem Cleaning
 # ==================================
 
 def clean_poem(poem):
-
-    if not poem:
-        return ""
-
-    poem = poem.replace(
-        "\r\n",
-        "\n"
-    )
-
-    poem = poem.replace(
-        "\r",
-        "\n"
-    )
+    poem = poem.replace("\r\n", "\n")
+    poem = poem.replace("\r", "\n")
 
     return poem.strip()
 
 
 # ==================================
-# Build Fortune
+# Fortune Formatting
 # ==================================
 
-def build_fortune(record):
-
-    number = get_ghazal_number(
-        record
-    )
-
-    poem = clean_poem(
-        record.get(
-            "poem",
-            ""
-        )
-    )
+def format_fortune(record):
+    number = get_ghazal_number(record)
+    poem = clean_poem(record["poem"])
 
     return (
-        f"فال حافظ\n"
+        "فال حافظ\n"
         f"شماره غزل {number}\n\n"
         f"{poem}\n\n"
-        f"منبع گنجور\n"
+        "منبع گنجور\n"
         f"{record.get('source', '')}\n"
-        f"@LIFE_M23 🌱"
+        f"{CHANNEL_URL} 🌱"
     )
 
 
-# ==================================
-# Send Fortune
-# ==================================
+def send_fortune(chat_id, record):
+    text = format_fortune(record)
+    chunks = split_message(text)
 
-def send_fortune(
-    chat_id,
-    record,
-    reply_markup=None
-):
-
-    fortune_text = build_fortune(
-        record
-    )
-
-    log(
-        f"[FORTUNE] Ghazal "
-        f"#{get_ghazal_number(record)} "
-        f"record={record.get('record_id')}"
-    )
-
-    log(
-        f"[FORTUNE] Final text length="
-        f"{len(fortune_text)}"
-    )
-
-    chunks = split_message(
-        fortune_text
-    )
-
-    log(
-        f"[MESSAGE] length="
-        f"{len(fortune_text)} "
-        f"chunks={len(chunks)}"
-    )
+    result = None
 
     for index, chunk in enumerate(chunks):
+        reply_markup = (
+            REPEAT_FORTUNE_KEYBOARD
+            if index == len(chunks) - 1
+            else None
+        )
 
-        if index == len(chunks) - 1:
+        result = send_message(
+            chat_id,
+            chunk,
+            reply_markup=reply_markup
+        )
 
-            send_message(
-                chat_id,
-                chunk,
-                reply_markup=reply_markup
-            )
-
-        else:
-
-            send_message(
-                chat_id,
-                chunk
-            )
-
-        if len(chunks) > 1:
-
-            time.sleep(0.15)
+    return result
 
 
 # ==================================
 # Audio URL Extraction
 # ==================================
 
-def extract_audio_urls_from_page(
-    html,
-    source_url
-):
+def extract_audio_urls_from_page(html, source_url):
+    urls = []
 
-    if not html:
-        return []
+    absolute_pattern = re.compile(
+        r'https?://[^"\']+\.(?:ogg|mp3)(?:\?[^"\']*)?',
+        re.IGNORECASE
+    )
 
-    found = []
+    for match in absolute_pattern.findall(html):
+        urls.append(match)
 
-    # ----------------------------------
-    # Direct absolute URLs
-    # ----------------------------------
+    relative_pattern = re.compile(
+        r'["\']([^"\']+\.(?:ogg|mp3)(?:\?[^"\']*)?)["\']',
+        re.IGNORECASE
+    )
 
-    absolute_patterns = [
-        r'https?://i\.ganjoor\.net/[^"\'>\s]+?\.(?:ogg|mp3)(?:\?[^"\'>\s]*)?',
-        r'https?://[^"\'>\s]+?\.(?:ogg|mp3)(?:\?[^"\'>\s]*)?'
+    for match in relative_pattern.findall(html):
+        urls.append(
+            urljoin(source_url, match)
+        )
+
+    preferred = [
+        url
+        for url in urls
+        if "i.ganjoor.net" in url
     ]
 
-    for pattern in absolute_patterns:
+    if preferred:
+        return list(dict.fromkeys(preferred))
 
-        matches = re.findall(
-            pattern,
-            html,
-            flags=re.IGNORECASE
-        )
-
-        for url in matches:
-
-            url = (
-                url
-                .replace(
-                    "&amp;",
-                    "&"
-                )
-                .replace(
-                    "\\/",
-                    "/"
-                )
-            )
-
-            if url not in found:
-
-                found.append(url)
-
-    # ----------------------------------
-    # Relative URLs
-    # ----------------------------------
-
-    relative_pattern = (
-        r'(?:"|\'|=)'
-        r'([^"\'\s>]+?\.(?:ogg|mp3)'
-        r'(?:\?[^"\'\s>]*)?)'
-    )
-
-    matches = re.findall(
-        relative_pattern,
-        html,
-        flags=re.IGNORECASE
-    )
-
-    for url in matches:
-
-        url = (
-            url
-            .replace(
-                "&amp;",
-                "&"
-            )
-            .replace(
-                "\\/",
-                "/"
-            )
-        )
-
-        absolute = urljoin(
-            source_url,
-            url
-        )
-
-        if absolute not in found:
-
-            found.append(
-                absolute
-            )
-
-    return found
+    return list(dict.fromkeys(urls))
 
 
-# ==================================
-# Resolve Audio From Ganjoor Page
-# ==================================
-
-def resolve_audio_from_source(
-    source_url
-):
-
+def resolve_audio_from_source(source_url):
     if not source_url:
         return None
 
-    cached_url = get_cached_audio_url(
-        source_url
-    )
+    cached = audio_url_cache_get(source_url)
 
-    if cached_url:
-
-        log(
-            "[AUDIO RESOLVE] "
-            f"CACHE HIT: {cached_url}"
+    if cached:
+        print(
+            f"[AUDIO] Source cache HIT: {source_url}"
         )
+        return cached
 
-        return cached_url
+    lock = get_audio_resolve_lock(source_url)
 
-    resolve_lock = get_audio_url_resolve_lock(
-        source_url
-    )
+    with lock:
+        cached = audio_url_cache_get(source_url)
 
-    with resolve_lock:
+        if cached:
+            return cached
 
-        cached_url = get_cached_audio_url(
-            source_url
+        print(
+            f"[AUDIO] Resolving from source: {source_url}"
         )
-
-        if cached_url:
-
-            return cached_url
-
-        log(
-            "[AUDIO RESOLVE] "
-            f"Opening Ganjoor source: "
-            f"{source_url}"
-        )
-
-        started_at = time.perf_counter()
 
         try:
-
-            session = get_session()
-
-            response = session.get(
+            response = get_session().get(
                 source_url,
                 timeout=REQUEST_TIMEOUT
             )
 
-            elapsed = (
-                time.perf_counter()
-                - started_at
-            )
+            response.raise_for_status()
 
-            if response.status_code != 200:
-
-                log(
-                    "[AUDIO RESOLVE] "
-                    f"Source HTTP "
-                    f"{response.status_code} | "
-                    f"{elapsed:.3f}s"
-                )
-
-                return None
-
-            html = response.text
-
-            urls = extract_audio_urls_from_page(
-                html,
+            candidates = extract_audio_urls_from_page(
+                response.text,
                 source_url
             )
 
-            log(
-                "[AUDIO RESOLVE] "
-                f"Found {len(urls)} "
-                f"audio URL(s) | "
-                f"{elapsed:.3f}s"
-            )
-
-            if not urls:
-
-                log(
-                    "[AUDIO RESOLVE] "
-                    "No audio URL found."
+            if not candidates:
+                print(
+                    "[AUDIO] No audio candidate found."
                 )
-
                 return None
 
-            # ----------------------------------
-            # اول OGG
-            # ----------------------------------
-
-            ogg_urls = [
+            ogg_candidates = [
                 url
-                for url in urls
+                for url in candidates
                 if ".ogg" in url.lower()
             ]
 
-            # ----------------------------------
-            # اگر OGG نبود MP3
-            # ----------------------------------
-
-            candidates = (
-                ogg_urls
-                if ogg_urls
-                else urls
+            selected = (
+                ogg_candidates[0]
+                if ogg_candidates
+                else candidates[0]
             )
 
-            # ----------------------------------
-            # فقط اولین URL واقعی را انتخاب می‌کنیم
-            # ----------------------------------
-
-            selected = candidates[0]
-
-            cache_audio_url(
+            audio_url_cache_put(
                 source_url,
                 selected
             )
 
-            log(
-                "[AUDIO RESOLVE] "
-                f"Selected: {selected}"
+            print(
+                f"[AUDIO] Resolved URL: {selected}"
             )
 
             return selected
 
-        except requests.Timeout as e:
-
-            elapsed = (
-                time.perf_counter()
-                - started_at
+        except Exception as exc:
+            print(
+                f"[AUDIO] Resolve error: {exc}"
             )
-
-            log(
-                "[AUDIO RESOLVE TIMEOUT] "
-                f"{elapsed:.3f}s | {e}"
-            )
-
-            return None
-
-        except requests.RequestException as e:
-
-            elapsed = (
-                time.perf_counter()
-                - started_at
-            )
-
-            log(
-                "[AUDIO RESOLVE ERROR] "
-                f"{elapsed:.3f}s | {e}"
-            )
-
-            return None
-
-        except Exception as e:
-
-            elapsed = (
-                time.perf_counter()
-                - started_at
-            )
-
-            log(
-                "[AUDIO RESOLVE ERROR] "
-                f"{elapsed:.3f}s | {e}"
-            )
-
             return None
 
 
-# ==================================
-# Check Audio URL
-# ==================================
-
-def check_audio_url(
-    audio_url
-):
-
+def check_audio_url(audio_url):
     if not audio_url:
         return False
 
     try:
-
-        session = get_session()
-
-        started_at = time.perf_counter()
-
-        response = session.get(
+        response = get_session().get(
             audio_url,
-            timeout=REQUEST_TIMEOUT,
-            stream=True
-        )
-
-        elapsed = (
-            time.perf_counter()
-            - started_at
+            stream=True,
+            timeout=REQUEST_TIMEOUT
         )
 
         status = response.status_code
 
         response.close()
 
-        log(
-            "[AUDIO CHECK] "
-            f"HTTP {status} | "
-            f"{elapsed:.3f}s | "
-            f"{audio_url}"
-        )
-
         return status == 200
 
-    except requests.Timeout as e:
-
-        log(
-            f"[AUDIO CHECK TIMEOUT] "
-            f"{audio_url} | {e}"
+    except Exception as exc:
+        print(
+            f"[AUDIO] URL check error: {exc}"
         )
-
-        return False
-
-    except requests.RequestException as e:
-
-        log(
-            f"[AUDIO CHECK ERROR] "
-            f"{audio_url} | {e}"
-        )
-
-        return False
-
-    except Exception as e:
-
-        log(
-            f"[AUDIO CHECK ERROR] "
-            f"{audio_url} | {e}"
-        )
-
         return False
 
 
-# ==================================
-# Resolve Final Audio URL
-# ==================================
+def resolve_final_audio_url(record):
+    audio_url = record.get("audio")
 
-def resolve_final_audio_url(
-    record
-):
+    if isinstance(audio_url, str) and audio_url.strip():
+        audio_url = audio_url.strip()
 
-    json_audio_url = record.get(
-        "audio"
-    )
-
-    source_url = record.get(
-        "source"
-    )
-
-    ghazal_number = get_ghazal_number(
-        record
-    )
-
-    # ----------------------------------
-    # 1. Audio موجود در JSON
-    # ----------------------------------
-
-    if json_audio_url:
-
-        log(
-            "[AUDIO] JSON source: "
-            f"{json_audio_url}"
+        print(
+            f"[AUDIO] JSON Audio found: {audio_url}"
         )
 
-        # اول cache فایل صوتی
-        if get_cached_audio(
-            json_audio_url
-        ) is not None:
+        if audio_cache_get(audio_url) is not None:
+            return audio_url
 
-            log(
-                "[AUDIO] "
-                "JSON audio already cached."
+        if negative_cache_get(audio_url):
+            print(
+                "[AUDIO] JSON audio is negative-cached."
+            )
+        else:
+            if check_audio_url(audio_url):
+                return audio_url
+
+            negative_cache_put(audio_url)
+
+            print(
+                "[AUDIO] JSON audio invalid; "
+                "falling back to source."
             )
 
-            return json_audio_url
+    source_url = record.get("source")
 
-        # بررسی زنده URL
-        if check_audio_url(
-            json_audio_url
-        ):
-
-            log(
-                "[AUDIO] "
-                "JSON audio URL is valid."
-            )
-
-            return json_audio_url
-
-        log(
-            "[AUDIO] "
-            "JSON audio URL unavailable. "
-            "Trying Ganjoor source fallback..."
-        )
-
-        # URL خراب را منفی cache می‌کنیم
-        set_negative_audio_cache(
-            json_audio_url
-        )
-
-    else:
-
-        log(
-            "[AUDIO] "
-            f"No Audio field for ghazal "
-            f"#{ghazal_number}. "
-            "Trying Ganjoor source fallback..."
-        )
-
-    # ----------------------------------
-    # 2. Fallback به صفحه گنجور
-    # ----------------------------------
-
-    fallback_url = resolve_audio_from_source(
-        source_url
-    )
-
-    if fallback_url:
-
-        log(
-            "[AUDIO] "
-            f"Fallback audio resolved: "
-            f"{fallback_url}"
-        )
-
-        return fallback_url
-
-    log(
-        "[AUDIO] "
-        f"No usable audio found for ghazal "
-        f"#{ghazal_number}"
-    )
-
-    return None
-
-
-# ==================================
-# Download Audio
-# ==================================
-
-def download_audio(
-    audio_url
-):
-
-    if not audio_url:
+    if not source_url:
         return None
 
-    # ------------------------------
-    # Positive Cache
-    # ------------------------------
+    return resolve_audio_from_source(source_url)
 
-    cached = get_cached_audio(
-        audio_url
-    )
+
+def download_audio(audio_url):
+    cached = audio_cache_get(audio_url)
 
     if cached is not None:
-
-        log(
-            f"[AUDIO CACHE] HIT: "
-            f"{audio_url}"
+        print(
+            "[AUDIO] Download cache HIT."
         )
-
         return cached
 
-    log(
-        f"[AUDIO CACHE] MISS: "
-        f"{audio_url}"
-    )
-
-    # ------------------------------
-    # Negative Cache
-    # ------------------------------
-
-    if get_negative_audio_cache(
-        audio_url
-    ):
-
-        log(
-            "[AUDIO CACHE] "
-            f"NEGATIVE HIT: "
-            f"{audio_url}"
+    if negative_cache_get(audio_url):
+        print(
+            "[AUDIO] Negative cache HIT."
         )
-
         return None
 
-    # ------------------------------
-    # Download Lock
-    # ------------------------------
+    lock = get_audio_download_lock(audio_url)
 
-    download_lock = get_audio_download_lock(
-        audio_url
-    )
-
-    with download_lock:
-
-        cached = get_cached_audio(
-            audio_url
-        )
+    with lock:
+        cached = audio_cache_get(audio_url)
 
         if cached is not None:
-
-            log(
-                "[AUDIO CACHE] "
-                f"HIT AFTER LOCK: "
-                f"{audio_url}"
-            )
-
             return cached
 
-        if get_negative_audio_cache(
-            audio_url
-        ):
-
-            log(
-                "[AUDIO CACHE] "
-                f"NEGATIVE HIT AFTER LOCK: "
-                f"{audio_url}"
-            )
-
+        if negative_cache_get(audio_url):
             return None
 
-        log(
-            "[AUDIO] Downloading: "
-            f"{audio_url}"
+        print(
+            f"[AUDIO] Downloading: {audio_url}"
         )
 
-        started_at = time.perf_counter()
-
         try:
-
-            session = get_session()
-
-            response = session.get(
+            response = get_session().get(
                 audio_url,
                 timeout=REQUEST_TIMEOUT
             )
 
-            elapsed = (
-                time.perf_counter()
-                - started_at
-            )
-
             if response.status_code == 404:
+                negative_cache_put(audio_url)
 
-                log(
-                    "[AUDIO] HTTP 404 | "
-                    f"{elapsed:.3f}s | "
-                    f"{audio_url}"
-                )
-
-                set_negative_audio_cache(
-                    audio_url
+                print(
+                    "[AUDIO] 404; negative cache stored."
                 )
 
                 return None
 
             response.raise_for_status()
 
-            content = response.content
+            data = response.content
 
-            if not content:
-
-                log(
-                    "[AUDIO] "
-                    "Empty audio response | "
-                    f"{elapsed:.3f}s"
-                )
-
+            if not data:
                 return None
 
-            log(
-                "[AUDIO] Downloaded "
-                f"{len(content)} bytes | "
-                f"{elapsed:.3f}s"
-            )
-
-            cache_audio(
+            audio_cache_put(
                 audio_url,
-                content
+                data
             )
 
-            return content
-
-        except requests.Timeout as e:
-
-            elapsed = (
-                time.perf_counter()
-                - started_at
+            print(
+                f"[AUDIO] Downloaded {len(data)} bytes."
             )
 
-            log(
-                "[AUDIO TIMEOUT] "
-                f"{elapsed:.3f}s | {e}"
+            return data
+
+        except Exception as exc:
+            print(
+                f"[AUDIO] Download error: {exc}"
             )
-
-            return None
-
-        except requests.RequestException as e:
-
-            elapsed = (
-                time.perf_counter()
-                - started_at
-            )
-
-            log(
-                "[AUDIO ERROR] "
-                f"{elapsed:.3f}s | {e}"
-            )
-
-            return None
-
-        except Exception as e:
-
-            elapsed = (
-                time.perf_counter()
-                - started_at
-            )
-
-            log(
-                "[AUDIO ERROR] "
-                f"{elapsed:.3f}s | {e}"
-            )
-
             return None
 
 
 # ==================================
-# Send Audio
+# Audio Metadata
 # ==================================
 
-def send_audio(
-    chat_id,
-    record
-):
+def get_audio_title(record):
+    number = get_ghazal_number(record)
 
-    ghazal_number = get_ghazal_number(
-        record
-    )
+    return f"غزل شمارهٔ {number}"
 
-    log(
-        "[AUDIO] Resolving audio for "
-        f"ghazal #{ghazal_number}"
-    )
 
-    audio_url = resolve_final_audio_url(
-        record
-    )
+def get_audio_performer(record):
+    return "حافظ"
+
+
+def send_audio(chat_id, record):
+    audio_url = resolve_final_audio_url(record)
 
     if not audio_url:
-
-        log(
-            "[AUDIO] Audio unavailable. "
-            "Nothing will be sent."
+        print(
+            "[AUDIO] No audio URL available."
         )
+        return None
 
-        return
-
-    log(
-        "[AUDIO] Final source for ghazal "
-        f"#{ghazal_number}: "
-        f"{audio_url}"
-    )
-
-    audio_data = download_audio(
-        audio_url
-    )
+    audio_data = download_audio(audio_url)
 
     if not audio_data:
-
-        log(
-            "[AUDIO] Audio download failed. "
-            "Nothing will be sent."
+        print(
+            "[AUDIO] Audio download failed."
         )
-
-        return
-
-    # ----------------------------------
-    # Extension
-    # ----------------------------------
+        return None
 
     lower_url = audio_url.lower()
 
     if ".mp3" in lower_url:
-
         extension = "mp3"
-
         mime_type = "audio/mpeg"
-
     else:
-
         extension = "ogg"
-
         mime_type = "audio/ogg"
 
+    ghazal_number = get_ghazal_number(record)
+
+    # ==================================
+    # Official file name
+    # ==================================
+
     filename = (
-        f"hafez_"
-        f"{ghazal_number}."
+        f"غزل {ghazal_number} - حافظ - گنجور."
         f"{extension}"
+    )
+
+    # ==================================
+    # Audio metadata
+    # ==================================
+
+    audio_title = get_audio_title(record)
+    audio_performer = get_audio_performer(record)
+
+    print(
+        f"[AUDIO] Filename: {filename}"
+    )
+
+    print(
+        f"[AUDIO] Title: {audio_title}"
+    )
+
+    print(
+        f"[AUDIO] Performer: {audio_performer}"
     )
 
     files = {
@@ -1766,52 +877,31 @@ def send_audio(
         )
     }
 
-    data = {
-        "chat_id": chat_id
-    }
-
-    result = splus_request(
+    return splus_request(
         "sendVoice",
-        data=data,
+        data={
+            "chat_id": chat_id,
+            "performer": audio_performer,
+            "title": audio_title,
+        },
         files=files
     )
 
-    if result and result.get("ok"):
-
-        log(
-            "[AUDIO] Sent successfully "
-            f"for ghazal #{ghazal_number}"
-        )
-
-    else:
-
-        log(
-            "[AUDIO] Failed to send "
-            f"ghazal #{ghazal_number}"
-        )
-
 
 # ==================================
-# Process Fortune
+# Fortune Processing
 # ==================================
 
-def process_fortune(
-    chat_id,
-    fortune_message_id
-):
+def process_fortune(chat_id, fortune_message_id):
+    start = time.perf_counter()
 
-    process_started_at = time.perf_counter()
-
-    log(
-        f"[FORTUNE START] "
-        f"chat_id={chat_id}"
+    print(
+        f"[FORTUNE] START chat={chat_id}"
     )
 
     try:
-
         if not HAZALS:
-
-            log(
+            print(
                 "[FORTUNE] HAZALS is empty."
             )
 
@@ -1823,107 +913,54 @@ def process_fortune(
 
             return
 
-        record = random.choice(
-            HAZALS
+        record = random.choice(HAZALS)
+
+        print(
+            f"[FORTUNE] Selected "
+            f"record_id={record.get('record_id')} "
+            f"number={get_ghazal_number(record)}"
         )
 
-        log(
-            f"[FORTUNE] Selected ghazal "
-            f"#{get_ghazal_number(record)} "
-            f"record={record.get('record_id')}"
-        )
-
-        # ------------------------------
-        # Fortune Text
-        # ------------------------------
-
-        log(
-            "[FORTUNE] "
-            "Sending fortune text..."
-        )
-
-        send_fortune(
+        result = send_fortune(
             chat_id,
-            record,
-            reply_markup=REPEAT_FORTUNE_KEYBOARD
+            record
         )
 
-        log(
-            "[FORTUNE] "
-            "Fortune text completed."
-        )
+        if result:
+            old_control = get_chat_control_message(chat_id)
 
-        # ------------------------------
-        # Delete control messages
-        # ------------------------------
-
-        if fortune_message_id:
+            if old_control:
+                delete_message(
+                    chat_id,
+                    old_control
+                )
 
             delete_message(
                 chat_id,
                 fortune_message_id
             )
 
-        repeat_prompt_id = (
-            get_chat_control_message(
-                chat_id,
-                "repeat_prompt_message_id"
-            )
-        )
-
-        if repeat_prompt_id:
-
-            delete_message(
-                chat_id,
-                repeat_prompt_id
-            )
-
             clear_chat_control_message(
-                chat_id,
-                "repeat_prompt_message_id"
+                chat_id
             )
-
-        clear_chat_control_message(
-            chat_id,
-            "fortune_message_id"
-        )
-
-        # ------------------------------
-        # Audio
-        # ------------------------------
-
-        log(
-            "[FORTUNE] "
-            "Starting audio..."
-        )
 
         send_audio(
             chat_id,
             record
         )
 
-        log(
-            "[FORTUNE] "
-            "Audio stage completed."
-        )
-
-    except Exception as e:
-
-        log(
-            f"[FORTUNE ERROR] {e}"
+    except Exception as exc:
+        print(
+            f"[FORTUNE] ERROR: {exc}"
         )
 
     finally:
+        elapsed = time.perf_counter() - start
 
-        total_elapsed = (
-            time.perf_counter()
-            - process_started_at
-        )
-
-        log(
-            f"[FORTUNE END] "
-            f"Total process time: "
-            f"{total_elapsed:.3f}s"
+        print(
+            f"[FORTUNE] END "
+            f"chat={chat_id} "
+            f"time={elapsed:.3f}s"
         )
 
 
@@ -1931,305 +968,150 @@ def process_fortune(
 # Webhook
 # ==================================
 
-@app.route(
-    "/webhook",
-    methods=["POST"]
-)
+@app.route("/webhook", methods=["POST"])
 def webhook():
+    update = request.get_json(
+        silent=True
+    ) or {}
 
-    webhook_started_at = time.perf_counter()
+    message = update.get("message") or {}
 
-    log(
-        "[WEBHOOK START]"
+    chat = message.get("chat") or {}
+    chat_id = chat.get("id")
+
+    if chat_id is None:
+        return "OK"
+
+    text = message.get("text")
+
+    message_id = message.get("message_id")
+
+    if not isinstance(text, str):
+        return "OK"
+
+    text = text.strip()
+
+    print(
+        f"[WEBHOOK] chat={chat_id} "
+        f"message_id={message_id} "
+        f"text={text!r}"
     )
 
-    try:
+    # ------------------------------
+    # /start
+    # ------------------------------
 
-        update = request.get_json(
-            silent=True
-        )
-
-        log(
-            f"[UPDATE] {update}"
-        )
-
-        if not update:
-
-            log(
-                "[WEBHOOK END] Empty update."
-            )
-
-            return "OK"
-
-        message = update.get(
-            "message"
-        )
-
-        if not message:
-
-            log(
-                "[WEBHOOK END] "
-                "No message in update."
-            )
-
-            return "OK"
-
-        chat = message.get(
-            "chat",
-            {}
-        )
-
-        chat_id = chat.get(
-            "id"
-        )
-
-        text = message.get(
-            "text",
-            ""
-        )
-
-        message_id = message.get(
-            "message_id"
-        )
-
-        if not chat_id:
-
-            log(
-                "[WEBHOOK END] "
-                "No chat_id."
-            )
-
-            return "OK"
-
-        log(
-            f"[MESSAGE] "
-            f"chat_id={chat_id} "
-            f"message_id={message_id} "
-            f"text={text!r}"
-        )
-
-        # ------------------------------
-        # /start
-        # ------------------------------
-
-        if text.strip() == "/start":
-
-            log(
-                "[WEBHOOK] "
-                "Processing /start..."
-            )
-
-            send_message(
-                chat_id,
+    if text == "/start":
+        sent = send_message(
+            chat_id,
+            (
                 "🌿 به بات فال حافظ خوش آمدید.\n\n"
                 "✨ ابتدا نیت کنید و سپس دکمه "
-                "«📜 فال حافظ» را بزنید.",
-                reply_markup=MAIN_KEYBOARD
-            )
+                "«📜 فال حافظ» را بزنید."
+            ),
+            reply_markup=MAIN_KEYBOARD
+        )
 
-            if message_id:
+        delete_message(
+            chat_id,
+            message_id
+        )
 
-                delete_message(
-                    chat_id,
-                    message_id
+        if isinstance(sent, dict):
+            sent_message = sent.get("result")
+
+            if isinstance(sent_message, dict):
+                sent_message_id = sent_message.get(
+                    "message_id"
                 )
 
-            elapsed = (
-                time.perf_counter()
-                - webhook_started_at
-            )
+                if sent_message_id:
+                    set_chat_control_message(
+                        chat_id,
+                        sent_message_id
+                    )
 
-            log(
-                "[WEBHOOK END] "
-                "/start completed in "
-                f"{elapsed:.3f}s"
-            )
+        return "OK"
 
-            return "OK"
+    # ------------------------------
+    # Repeat fortune
+    # ------------------------------
 
-        # ------------------------------
-        # Repeat Fortune
-        # ------------------------------
+    if text in (
+        "یک فال دیگر",
+        "🌿 یک فال دیگر"
+    ):
+        delete_message(
+            chat_id,
+            message_id
+        )
 
-        if text.strip() in (
-            "یک فال دیگر",
-            "🌿 یک فال دیگر"
-        ):
-
-            log(
-                "[WEBHOOK] "
-                "Repeat fortune request received."
-            )
-
-            if message_id:
-
-                delete_message(
-                    chat_id,
-                    message_id
-                )
-
-            prompt_result = send_message(
-                chat_id,
+        sent = send_message(
+            chat_id,
+            (
                 "✨ دوباره نیت کنید و سپس دکمه "
-                "«📜 فال حافظ» را بزنید.",
-                reply_markup=MAIN_KEYBOARD
-            )
-
-            if (
-                prompt_result
-                and prompt_result.get("ok")
-            ):
-
-                prompt_message = (
-                    prompt_result.get(
-                        "result"
-                    )
-                )
-
-                if isinstance(
-                    prompt_message,
-                    dict
-                ):
-
-                    prompt_message_id = (
-                        prompt_message.get(
-                            "message_id"
-                        )
-                    )
-
-                    if prompt_message_id:
-
-                        set_chat_control_message(
-                            chat_id,
-                            "repeat_prompt_message_id",
-                            prompt_message_id
-                        )
-
-                        log(
-                            "[CONTROL] "
-                            f"repeat_prompt_message_id="
-                            f"{prompt_message_id}"
-                        )
-
-            elapsed = (
-                time.perf_counter()
-                - webhook_started_at
-            )
-
-            log(
-                "[WEBHOOK END] "
-                "Repeat fortune prompt "
-                f"completed in {elapsed:.3f}s"
-            )
-
-            return "OK"
-
-        # ------------------------------
-        # Fortune
-        # ------------------------------
-
-        if text.strip() in (
-            "فال حافظ",
-            "📜 فال حافظ"
-        ):
-
-            log(
-                "[WEBHOOK] "
-                "Fortune request received."
-            )
-
-            if message_id:
-
-                set_chat_control_message(
-                    chat_id,
-                    "fortune_message_id",
-                    message_id
-                )
-
-            thread = threading.Thread(
-                target=process_fortune,
-                args=(
-                    chat_id,
-                    message_id
-                ),
-                daemon=True,
-                name=f"fortune-{chat_id}"
-            )
-
-            log(
-                "[WEBHOOK] "
-                "Starting fortune thread "
-                f"name={thread.name}"
-            )
-
-            thread.start()
-
-            log(
-                "[WEBHOOK] "
-                "Fortune thread started | "
-                f"alive={thread.is_alive()}"
-            )
-
-        elapsed = (
-            time.perf_counter()
-            - webhook_started_at
+                "«📜 فال حافظ» را بزنید."
+            ),
+            reply_markup=MAIN_KEYBOARD
         )
 
-        log(
-            "[WEBHOOK END] "
-            f"completed in {elapsed:.3f}s"
-        )
+        if isinstance(sent, dict):
+            sent_message = sent.get("result")
+
+            if isinstance(sent_message, dict):
+                sent_message_id = sent_message.get(
+                    "message_id"
+                )
+
+                if sent_message_id:
+                    set_chat_control_message(
+                        chat_id,
+                        sent_message_id
+                    )
 
         return "OK"
 
-    except Exception as e:
+    # ------------------------------
+    # Fortune
+    # ------------------------------
 
-        log(
-            f"[WEBHOOK ERROR] {e}"
+    if text in (
+        "فال حافظ",
+        "📜 فال حافظ"
+    ):
+        fortune_message_id = message_id
+
+        thread = threading.Thread(
+            target=process_fortune,
+            args=(
+                chat_id,
+                fortune_message_id
+            ),
+            daemon=True,
+            name=f"fortune-{chat_id}"
         )
 
-        elapsed = (
-            time.perf_counter()
-            - webhook_started_at
-        )
-
-        log(
-            "[WEBHOOK END] "
-            f"with error after "
-            f"{elapsed:.3f}s"
-        )
+        thread.start()
 
         return "OK"
 
+    return "OK"
+
 
 # ==================================
-# Home / Health Check
+# Health
 # ==================================
 
-@app.route(
-    "/",
-    methods=["GET", "HEAD"]
-)
+@app.route("/", methods=["GET", "HEAD"])
 def home():
-
-    log(
-        "[HEALTH] Home/Health request received."
-    )
-
     return "Hafez Bot is running."
 
 
 # ==================================
-# Set Webhook
+# Webhook Setup
 # ==================================
 
 def set_webhook():
-
-    log(
-        f"[WEBHOOK] Setting webhook: "
-        f"{WEBHOOK_URL}"
-    )
-
     result = splus_request(
         "setWebhook",
         data={
@@ -2237,8 +1119,8 @@ def set_webhook():
         }
     )
 
-    log(
-        f"[WEBHOOK RESULT] {result}"
+    print(
+        f"[WEBHOOK] setWebhook result: {result}"
     )
 
 
@@ -2246,36 +1128,20 @@ def set_webhook():
 # Startup
 # ==================================
 
-log(
-    "[STARTUP] Bot process starting..."
-)
+print("[STARTUP] Starting Hafez Bot...")
 
 try:
-
     load_data()
 
-except Exception as e:
-
-    log(
-        f"[DATA ERROR] {e}"
+except Exception as exc:
+    print(
+        f"[STARTUP] Data load error: {exc}"
     )
 
+print("[STARTUP] Initialization complete.")
 
-log(
-    "[STARTUP] Bot initialization completed."
-)
-
-
-# ==================================
-# Local Run
-# ==================================
 
 if __name__ == "__main__":
-
-    log(
-        "[LOCAL RUN] Starting local application..."
-    )
-
     set_webhook()
 
     port = int(
@@ -2289,3 +1155,6 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=port
     )
+
+
+
