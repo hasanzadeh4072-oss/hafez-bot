@@ -304,6 +304,17 @@ TABIR_MAP = {}
 
 
 # ==================================
+# API Success Helper
+# ==================================
+
+def api_success(result):
+    return (
+        isinstance(result, dict)
+        and result.get("ok") is True
+    )
+
+
+# ==================================
 # Interpretation Validation
 # ==================================
 
@@ -398,7 +409,41 @@ def load_interpretations():
         start=1
     ):
 
-        ghazal_number = str(index)
+        # اگر فایل تعبیر شماره غزل داشته باشد،
+        # همان شماره ملاک قرار می‌گیرد.
+        # در ساختار فعلی فایل، در صورت نبود شماره،
+        # ترتیب رکوردها حفظ می‌شود.
+        ghazal_number = None
+
+        if isinstance(item, dict):
+
+            possible_number_fields = (
+                "ghazal_number",
+                "GhazalNumber",
+                "ghazal",
+                "number",
+                "Number",
+                "id",
+                "ID"
+            )
+
+            for field in possible_number_fields:
+
+                value = item.get(field)
+
+                if value is not None:
+
+                    match = re.search(
+                        r"\d+",
+                        str(value)
+                    )
+
+                    if match:
+                        ghazal_number = match.group(0)
+                        break
+
+        if not ghazal_number:
+            ghazal_number = str(index)
 
         if not isinstance(item, dict):
 
@@ -433,7 +478,7 @@ def load_interpretations():
 
             continue
 
-        TABIR_MAP[ghazal_number] = interpretation
+        TABIR_MAP[str(ghazal_number)] = interpretation
 
         valid_records += 1
 
@@ -904,8 +949,9 @@ def send_fortune(
             result
         )
 
+    # فقط پاسخ واقعی API با ok=True موفق محسوب می‌شود
     return all(
-        result is not None
+        api_success(result)
         for result in results
     )
 
@@ -994,7 +1040,13 @@ def resolve_audio_from_source(
     )
 
     if cached:
-        return cached
+
+        if check_audio_url(cached):
+            return cached
+
+        print(
+            "[AUDIO] Cached URL is no longer valid."
+        )
 
     lock = get_audio_resolve_lock(
         source_url
@@ -1007,7 +1059,13 @@ def resolve_audio_from_source(
         )
 
         if cached:
-            return cached
+
+            if check_audio_url(cached):
+                return cached
+
+            print(
+                "[AUDIO] Cached URL is no longer valid."
+            )
 
         try:
 
@@ -1049,22 +1107,50 @@ def resolve_audio_from_source(
                 if ".ogg" in url.lower()
             ]
 
-            selected = (
-                ogg_candidates[0]
-                if ogg_candidates
-                else candidates[0]
+            ordered_candidates = (
+                ogg_candidates
+                + [
+                    url
+                    for url in candidates
+                    if url not in ogg_candidates
+                ]
             )
 
-            audio_url_cache_put(
-                source_url,
-                selected
-            )
+            for candidate in ordered_candidates:
+
+                if negative_cache_get(candidate):
+                    continue
+
+                print(
+                    f"[AUDIO] Checking candidate: "
+                    f"{candidate}"
+                )
+
+                if check_audio_url(candidate):
+
+                    audio_url_cache_put(
+                        source_url,
+                        candidate
+                    )
+
+                    print(
+                        f"[AUDIO] Resolved: {candidate}"
+                    )
+
+                    return candidate
+
+                negative_cache_put(candidate)
+
+                print(
+                    f"[AUDIO] Invalid candidate: "
+                    f"{candidate}"
+                )
 
             print(
-                f"[AUDIO] Resolved: {selected}"
+                "[AUDIO] No valid audio candidate found."
             )
 
-            return selected
+            return None
 
         except Exception as e:
 
@@ -1087,13 +1173,13 @@ def check_audio_url(audio_url):
 
     try:
 
-        response = get_session().get(
+        with get_session().get(
             audio_url,
             stream=True,
             timeout=REQUEST_TIMEOUT
-        )
+        ) as response:
 
-        return response.status_code == 200
+            return response.status_code == 200
 
     except Exception as e:
 
@@ -1506,10 +1592,11 @@ def process_fortune(
                 chat_id
             )
 
-        send_audio(
-            chat_id,
-            record
-        )
+            # فقط بعد از ارسال موفق فال، صوت ارسال می‌شود.
+            send_audio(
+                chat_id,
+                record
+            )
 
     except Exception as e:
 
@@ -1863,3 +1950,6 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=port
     )
+
+
+
