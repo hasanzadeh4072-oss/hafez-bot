@@ -4,6 +4,7 @@ import random
 import time
 import threading
 import re
+import unicodedata
 from collections import OrderedDict
 from urllib.parse import urljoin
 
@@ -347,6 +348,60 @@ def normalize_text(text):
 
     text = str(text)
 
+    # Unicode normalization
+    text = unicodedata.normalize(
+        "NFKC",
+        text
+    )
+
+    # یکسان‌سازی حروف عربی و فارسی
+    replacements = {
+        "ي": "ی",
+        "ى": "ی",
+        "ك": "ک",
+        "ۀ": "ه",
+        "ة": "ه",
+        "ؤ": "و",
+        "إ": "ا",
+        "أ": "ا",
+        "ٱ": "ا",
+    }
+
+    for old, new in replacements.items():
+        text = text.replace(
+            old,
+            new
+        )
+
+    # حذف کشیده
+    text = text.replace(
+        "ـ",
+        ""
+    )
+
+    # حذف کاراکترهای نامرئی
+    text = text.replace(
+        "\ufeff",
+        ""
+    )
+
+    text = text.replace(
+        "\u200b",
+        ""
+    )
+
+    text = text.replace(
+        "\u200d",
+        ""
+    )
+
+    # نیم‌فاصله برای تطبیق مانند فاصله معمولی باشد
+    text = text.replace(
+        "\u200c",
+        " "
+    )
+
+    # یکسان‌سازی خط جدید
     text = text.replace(
         "\r\n",
         "\n"
@@ -357,39 +412,24 @@ def normalize_text(text):
         "\n"
     )
 
-    # حذف BOM
-    text = text.replace(
-        "\ufeff",
-        ""
+    # حذف حرکات عربی
+    text = "".join(
+        char
+        for char in text
+        if unicodedata.category(char) != "Mn"
     )
 
-    # یکسان‌سازی نیم‌فاصله
-    text = text.replace(
-        "\u200c",
-        "\u200c"
-    )
-
-    # یکسان‌سازی فاصله‌های خاص
-    text = text.replace(
-        "\u00a0",
-        " "
-    )
-
-    # حذف فاصله‌های انتهای خطوط
-    lines = []
-
-    for line in text.split("\n"):
-
-        line = line.strip()
-
-        if line:
-            lines.append(line)
-
-    text = "\n".join(lines)
-
-    # حذف فاصله‌های اضافی
+    # حذف علائم نگارشی
     text = re.sub(
-        r"[ \t]+",
+        r"[^\w\s\u0600-\u06FF]",
+        " ",
+        text,
+        flags=re.UNICODE
+    )
+
+    # یکسان‌سازی فاصله‌ها
+    text = re.sub(
+        r"\s+",
         " ",
         text
     )
@@ -399,62 +439,15 @@ def normalize_text(text):
 
 def normalize_poem_for_match(text):
 
-    text = normalize_text(text)
+    text = normalize_text(
+        text
+    )
 
     if not text:
         return ""
 
-    # برای تطبیق، تفاوت‌های جزئی علائم و فاصله مهم نباشد
-    text = text.replace(
-        "،",
-        ""
-    )
-
-    text = text.replace(
-        "؛",
-        ""
-    )
-
-    text = text.replace(
-        ":",
-        ""
-    )
-
-    text = text.replace(
-        ".",
-        ""
-    )
-
-    text = text.replace(
-        "؟",
-        ""
-    )
-
-    text = text.replace(
-        "!",
-        ""
-    )
-
-    text = text.replace(
-        "«",
-        ""
-    )
-
-    text = text.replace(
-        "»",
-        ""
-    )
-
-    text = text.replace(
-        "(",
-        ""
-    )
-
-    text = text.replace(
-        ")",
-        ""
-    )
-
+    # برای تطبیق شعر:
+    # فاصله، نیم‌فاصله و خط جدید اهمیتی نداشته باشد.
     text = re.sub(
         r"\s+",
         "",
@@ -488,12 +481,12 @@ def is_valid_interpretation(
     )
 
     invalid_phrases = [
-        "برایاینغزل هنوزتعبیری ثبتنشده",
         "برایاینغزل هنوزتعبیریثبتنشده",
+        "برایاینغزل هنوزتعبیری ثبتنشده",
+        "برایاینغزل هنوزتعبیری",
         "تعبیریثبتنشده",
         "تعبیرثبتنشده",
         "هنوزتعبیریثبتنشده",
-        "هنوزتعبیریثبتنشده!"
     ]
 
     for phrase in invalid_phrases:
@@ -551,63 +544,86 @@ def load_interpretations():
 
         return
 
-    loaded = 0
-    skipped = 0
+    total_records = 0
+    valid_records = 0
+    skipped_records = 0
 
     for item in data:
+
+        # ساختار واقعی Hafez_Tabir.json:
+        #
+        # {
+        #     "poem": "...",
+        #     "interpretation": "..."
+        # }
+        #
+        # بنابراین نباید item.items() را
+        # دوباره به عنوان رکورد پیمایش کنیم.
 
         if not isinstance(
             item,
             dict
         ):
+
+            skipped_records += 1
             continue
 
-        # فایل تعبیر ساختار رکوردی دارد
-        # و هر رکورد می‌تواند یک کلید شناسه داشته باشد.
-        for record_id, record in item.items():
+        poem = item.get(
+            "poem",
+            ""
+        )
 
-            if not isinstance(
-                record,
-                dict
-            ):
-                continue
+        interpretation = item.get(
+            "interpretation",
+            ""
+        )
 
-            poem = normalize_poem_for_match(
-                record.get(
-                    "poem",
-                    ""
-                )
-            )
+        total_records += 1
 
-            interpretation = normalize_text(
-                record.get(
-                    "interpretation",
-                    ""
-                )
-            )
+        poem_key = normalize_poem_for_match(
+            poem
+        )
 
-            if not poem:
+        interpretation = normalize_text(
+            interpretation
+        )
 
-                skipped += 1
-                continue
+        if not poem_key:
 
-            if not is_valid_interpretation(
-                interpretation
-            ):
+            skipped_records += 1
+            continue
 
-                skipped += 1
-                continue
+        if not is_valid_interpretation(
+            interpretation
+        ):
 
-            TABIR_MAP[poem] = interpretation
+            skipped_records += 1
+            continue
 
-            loaded += 1
+        TABIR_MAP[
+            poem_key
+        ] = interpretation
+
+        valid_records += 1
 
     print(
-        f"[TABIR] Loaded {loaded} interpretations."
+        f"[TABIR] Total records: "
+        f"{total_records}"
     )
 
     print(
-        f"[TABIR] Skipped {skipped} records."
+        f"[TABIR] Valid interpretations: "
+        f"{valid_records}"
+    )
+
+    print(
+        f"[TABIR] Skipped records: "
+        f"{skipped_records}"
+    )
+
+    print(
+        f"[TABIR] Map size: "
+        f"{len(TABIR_MAP)}"
     )
 
 
@@ -1021,10 +1037,6 @@ def format_fortune(record):
         record
     )
 
-    # ------------------------------
-    # Main Fortune
-    # ------------------------------
-
     text = (
         "فال حافظ\n"
         f"شماره غزل {number}\n\n"
@@ -1032,10 +1044,6 @@ def format_fortune(record):
         "────────────\n\n"
         "🌌 تعبیر\n\n"
     )
-
-    # ------------------------------
-    # Interpretation
-    # ------------------------------
 
     if interpretation:
 
@@ -1048,10 +1056,6 @@ def format_fortune(record):
         text += (
             "بات تعبیری برای این غزل ندارد.\n\n"
         )
-
-    # ------------------------------
-    # Footer
-    # ------------------------------
 
     text += (
         f"{CHANNEL_URL} 🌱"
@@ -1493,522 +1497,4 @@ def get_audio_title(record):
 
 def get_audio_performer(record):
 
-    return "شعرکده سروش پلاس"
-
-
-# ==================================
-# Send Audio
-# ==================================
-
-def send_audio(
-    chat_id,
-    record
-):
-
-    audio_url = resolve_final_audio_url(
-        record
-    )
-
-    if not audio_url:
-
-        print(
-            "[AUDIO] No audio URL available."
-        )
-
-        return None
-
-    audio_data = download_audio(
-        audio_url
-    )
-
-    if not audio_data:
-
-        print(
-            "[AUDIO] Audio download failed."
-        )
-
-        return None
-
-    lower_url = audio_url.lower()
-
-    if ".mp3" in lower_url:
-
-        extension = "mp3"
-        mime_type = "audio/mpeg"
-
-    else:
-
-        extension = "ogg"
-        mime_type = "audio/ogg"
-
-    number = get_ghazal_number(
-        record
-    )
-
-    filename = (
-        f"غزل {number} - حافظ - گنجور."
-        f"{extension}"
-    )
-
-    audio_title = get_audio_title(
-        record
-    )
-
-    audio_performer = get_audio_performer(
-        record
-    )
-
-    print(
-        f"[AUDIO] Sending Audio | "
-        f"filename={filename} | "
-        f"title={audio_title} | "
-        f"performer={audio_performer}"
-    )
-
-    files = {
-        "audio": (
-            filename,
-            audio_data,
-            mime_type
-        )
-    }
-
-    return splus_request(
-        "sendAudio",
-        data={
-            "chat_id": chat_id,
-            "performer": audio_performer,
-            "title": audio_title,
-        },
-        files=files
-    )
-
-
-# ==================================
-# Chat Control State
-# ==================================
-
-CHAT_CONTROL_MESSAGES = {}
-
-CHAT_CONTROL_LOCK = threading.RLock()
-
-
-def set_control_message(
-    chat_id,
-    message_id
-):
-
-    with CHAT_CONTROL_LOCK:
-
-        CHAT_CONTROL_MESSAGES[
-            str(chat_id)
-        ] = message_id
-
-
-def get_control_message(
-    chat_id
-):
-
-    with CHAT_CONTROL_LOCK:
-
-        return CHAT_CONTROL_MESSAGES.get(
-            str(chat_id)
-        )
-
-
-def remove_control_message(
-    chat_id
-):
-
-    with CHAT_CONTROL_LOCK:
-
-        return CHAT_CONTROL_MESSAGES.pop(
-            str(chat_id),
-            None
-        )
-
-
-def clear_control_message(
-    chat_id
-):
-
-    with CHAT_CONTROL_LOCK:
-
-        CHAT_CONTROL_MESSAGES.pop(
-            str(chat_id),
-            None
-        )
-
-
-# ==================================
-# Fortune Processing
-# ==================================
-
-def process_fortune(
-    chat_id,
-    fortune_message_id
-):
-
-    try:
-
-        if not HAZALS:
-
-            send_message(
-                chat_id,
-                "متأسفانه مجموعه غزل‌های حافظ در دسترس نیست.",
-                reply_markup=MAIN_KEYBOARD
-            )
-
-            return
-
-        record = random.choice(
-            HAZALS
-        )
-
-        print(
-            "[FORTUNE] Selected ghazal:",
-            get_ghazal_number(record)
-        )
-
-        interpretation = get_interpretation(
-            record
-        )
-
-        if interpretation:
-
-            print(
-                "[TABIR] Interpretation found."
-            )
-
-        else:
-
-            print(
-                "[TABIR] No interpretation "
-                "for selected ghazal."
-            )
-
-        success = send_fortune(
-            chat_id,
-            record
-        )
-
-        if success:
-
-            old_control = get_control_message(
-                chat_id
-            )
-
-            if old_control:
-
-                delete_message(
-                    chat_id,
-                    old_control
-                )
-
-            if fortune_message_id:
-
-                delete_message(
-                    chat_id,
-                    fortune_message_id
-                )
-
-            clear_control_message(
-                chat_id
-            )
-
-        # Audio is sent after the poem.
-        send_audio(
-            chat_id,
-            record
-        )
-
-    except Exception as e:
-
-        print(
-            "[FORTUNE] ERROR:",
-            e
-        )
-
-
-# ==================================
-# Webhook
-# ==================================
-
-@app.route(
-    "/webhook",
-    methods=["POST"]
-)
-def webhook():
-
-    try:
-
-        update = request.get_json(
-            silent=True
-        ) or {}
-
-        message = update.get(
-            "message"
-        ) or update.get(
-            "edited_message"
-        )
-
-        if not message:
-            return "ok"
-
-        chat = message.get(
-            "chat"
-        ) or {}
-
-        chat_id = chat.get(
-            "id"
-        )
-
-        if chat_id is None:
-            return "ok"
-
-        text = str(
-            message.get(
-                "text",
-                ""
-            )
-        ).strip()
-
-        message_id = message.get(
-            "message_id"
-        )
-
-        # ------------------------------
-        # /start
-        # ------------------------------
-
-        if text == "/start":
-
-            welcome_text = (
-                "🌿 به فال حافظ خوش آمدید.\n\n"
-                "برای گرفتن فال، روی دکمه "
-                "«📜 فال حافظ» بزنید.\n\n"
-                "هر بار یک غزل تصادفی از "
-                "غزلیات حافظ برای شما انتخاب می‌شود."
-            )
-
-            result = send_message(
-                chat_id,
-                welcome_text,
-                reply_markup=MAIN_KEYBOARD
-            )
-
-            if result:
-
-                sent_message_id = None
-
-                if isinstance(
-                    result,
-                    dict
-                ):
-
-                    result_data = result.get(
-                        "result"
-                    )
-
-                    if isinstance(
-                        result_data,
-                        dict
-                    ):
-
-                        sent_message_id = (
-                            result_data.get(
-                                "message_id"
-                            )
-                        )
-
-                if sent_message_id:
-
-                    set_control_message(
-                        chat_id,
-                        sent_message_id
-                    )
-
-            if message_id:
-
-                delete_message(
-                    chat_id,
-                    message_id
-                )
-
-            return "ok"
-
-        # ------------------------------
-        # Repeat
-        # ------------------------------
-
-        if text == "🌿 یک فال دیگر":
-
-            if message_id:
-
-                delete_message(
-                    chat_id,
-                    message_id
-                )
-
-            result = send_message(
-                chat_id,
-                "🌿 دوباره نیت کنید و روی «📜 فال حافظ» بزنید.",
-                reply_markup=MAIN_KEYBOARD
-            )
-
-            if result:
-
-                sent_message_id = None
-
-                if isinstance(
-                    result,
-                    dict
-                ):
-
-                    result_data = result.get(
-                        "result"
-                    )
-
-                    if isinstance(
-                        result_data,
-                        dict
-                    ):
-
-                        sent_message_id = (
-                            result_data.get(
-                                "message_id"
-                            )
-                        )
-
-                if sent_message_id:
-
-                    set_control_message(
-                        chat_id,
-                        sent_message_id
-                    )
-
-            return "ok"
-
-        # ------------------------------
-        # Fortune
-        # ------------------------------
-
-        if text == "📜 فال حافظ":
-
-            thread = threading.Thread(
-                target=process_fortune,
-                args=(
-                    chat_id,
-                    message_id
-                ),
-                daemon=True
-            )
-
-            thread.start()
-
-            return "ok"
-
-        return "ok"
-
-    except Exception as e:
-
-        print(
-            "[WEBHOOK] ERROR:",
-            e
-        )
-
-        return "ok"
-
-
-# ==================================
-# Health Check
-# ==================================
-
-@app.route(
-    "/",
-    methods=["GET"]
-)
-def health():
-
-    return "Hafez Bot is running."
-
-
-# ==================================
-# Webhook Setup
-# ==================================
-
-def set_webhook():
-
-    print(
-        "[WEBHOOK] Setting webhook..."
-    )
-
-    result = splus_request(
-        "setWebhook",
-        data={
-            "url": WEBHOOK_URL
-        }
-    )
-
-    print(
-        "[WEBHOOK] Result:",
-        result
-    )
-
-    return result
-
-
-# ==================================
-# Startup
-# ==================================
-
-try:
-
-    load_data()
-
-except Exception as e:
-
-    print(
-        "[STARTUP] DATA ERROR:",
-        e
-    )
-
-    HAZALS = []
-
-
-try:
-
-    load_interpretations()
-
-except Exception as e:
-
-    print(
-        "[STARTUP] TABIR ERROR:",
-        e
-    )
-
-    TABIR_MAP = {}
-
-
-# ==================================
-# Main
-# ==================================
-
-if __name__ == "__main__":
-
-    set_webhook()
-
-    port = int(
-        os.environ.get(
-            "PORT",
-            10000
-        )
-    )
-
-    app.run(
-        host="0.0.0.0",
-        port=port
-    )
-
-
-
+    return "شعرکده
