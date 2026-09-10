@@ -26,8 +26,10 @@ if not TOKEN:
 API = f"https://api.splus.ir/bot{TOKEN}"
 
 WEBHOOK_URL = "https://hafez-bot.onrender.com/webhook"
+
 DATA_FILE = "HafezFilebot.json"
 TABIR_FILE = "Hafez_Tabir.json"
+FAL_FILE = "fal.json"
 
 CHANNEL_URL = "https://splus.ir/life_m23"
 
@@ -300,7 +302,64 @@ FORTUNE_KEYBOARD = {
 
 HAZALS = []
 
-TABIR_MAP = {}
+OLD_TABIR_MAP = {}
+FAL_TABIR_MAP = {}
+FAL_AUDIO_MAP = {}
+
+
+# ==================================
+# Text Normalization
+# ==================================
+
+def normalize_title(value):
+
+    if value is None:
+        return ""
+
+    text = str(value).strip()
+
+    text = text.replace(
+        "ي",
+        "ی"
+    )
+
+    text = text.replace(
+        "ى",
+        "ی"
+    )
+
+    text = text.replace(
+        "ك",
+        "ک"
+    )
+
+    text = text.replace(
+        "\u200c",
+        ""
+    )
+
+    text = text.replace(
+        "\u200d",
+        ""
+    )
+
+    text = text.replace(
+        "\u200e",
+        ""
+    )
+
+    text = text.replace(
+        "\u200f",
+        ""
+    )
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text
+    )
+
+    return text.strip()
 
 
 # ==================================
@@ -341,19 +400,19 @@ def is_valid_interpretation(interpretation):
 
 
 # ==================================
-# Load Interpretations
+# Load Old Interpretations
 # ==================================
 
-def load_interpretations():
+def load_old_interpretations():
 
-    global TABIR_MAP
+    global OLD_TABIR_MAP
 
-    TABIR_MAP = {}
+    OLD_TABIR_MAP = {}
 
     if not os.path.exists(TABIR_FILE):
 
         print(
-            f"[TABIR] File not found: {TABIR_FILE}"
+            f"[TABIR-OLD] File not found: {TABIR_FILE}"
         )
 
         return
@@ -371,7 +430,7 @@ def load_interpretations():
     except Exception as e:
 
         print(
-            "[TABIR] JSON load error:",
+            "[TABIR-OLD] JSON load error:",
             e
         )
 
@@ -380,7 +439,7 @@ def load_interpretations():
     if not isinstance(data, list):
 
         print(
-            "[TABIR] JSON root must be a list."
+            "[TABIR-OLD] JSON root must be a list."
         )
 
         return
@@ -390,7 +449,7 @@ def load_interpretations():
     skipped_records = 0
 
     print(
-        f"[TABIR] Total records: {total_records}"
+        f"[TABIR-OLD] Total records: {total_records}"
     )
 
     for index, item in enumerate(
@@ -405,7 +464,7 @@ def load_interpretations():
             skipped_records += 1
 
             print(
-                f"[TABIR] Skipped record #{ghazal_number}: "
+                f"[TABIR-OLD] Skipped record #{ghazal_number}: "
                 f"invalid record structure"
             )
 
@@ -427,54 +486,272 @@ def load_interpretations():
             skipped_records += 1
 
             print(
-                f"[TABIR] Skipped interpretation "
+                f"[TABIR-OLD] Skipped interpretation "
                 f"for ghazal #{ghazal_number}"
             )
 
             continue
 
-        TABIR_MAP[ghazal_number] = interpretation
+        OLD_TABIR_MAP[
+            ghazal_number
+        ] = interpretation
 
         valid_records += 1
 
     print(
-        f"[TABIR] Valid interpretations: "
+        f"[TABIR-OLD] Valid interpretations: "
         f"{valid_records}"
     )
 
     print(
-        f"[TABIR] Skipped records: "
+        f"[TABIR-OLD] Skipped records: "
         f"{skipped_records}"
     )
 
     print(
-        f"[TABIR] Map size: "
-        f"{len(TABIR_MAP)}"
+        f"[TABIR-OLD] Map size: "
+        f"{len(OLD_TABIR_MAP)}"
     )
 
 
+# ==================================
+# Load fal.json
+# ==================================
+
+def load_fal_file():
+
+    global FAL_TABIR_MAP
+    global FAL_AUDIO_MAP
+
+    FAL_TABIR_MAP = {}
+    FAL_AUDIO_MAP = {}
+
+    if not os.path.exists(FAL_FILE):
+
+        print(
+            f"[FAL] File not found: {FAL_FILE}"
+        )
+
+        return
+
+    try:
+
+        with open(
+            FAL_FILE,
+            "r",
+            encoding="utf-8"
+        ) as f:
+
+            data = json.load(f)
+
+    except Exception as e:
+
+        print(
+            "[FAL] JSON load error:",
+            e
+        )
+
+        return
+
+    if not isinstance(data, list):
+
+        print(
+            "[FAL] JSON root must be a list."
+        )
+
+        return
+
+    total_records = len(data)
+    valid_interpretations = 0
+    audio_records = 0
+    skipped_records = 0
+
+    print(
+        f"[FAL] Total records: {total_records}"
+    )
+
+    for index, item in enumerate(
+        data,
+        start=1
+    ):
+
+        if not isinstance(item, dict):
+
+            skipped_records += 1
+
+            print(
+                f"[FAL] Skipped record #{index}: "
+                f"invalid record structure"
+            )
+
+            continue
+
+        title = item.get(
+            "title",
+            ""
+        )
+
+        normalized_title = normalize_title(
+            title
+        )
+
+        if not normalized_title:
+
+            skipped_records += 1
+
+            print(
+                f"[FAL] Skipped record #{index}: "
+                f"missing title"
+            )
+
+            continue
+
+        interpretation = item.get(
+            "interpreter",
+            ""
+        )
+
+        if is_valid_interpretation(
+            interpretation
+        ):
+
+            FAL_TABIR_MAP[
+                normalized_title
+            ] = str(
+                interpretation
+            ).strip()
+
+            valid_interpretations += 1
+
+        audio = item.get(
+            "audio",
+            ""
+        )
+
+        if isinstance(audio, list):
+
+            audio_candidates = audio
+
+        else:
+
+            audio_candidates = [
+                audio
+            ]
+
+        valid_audio = []
+
+        for audio_url in audio_candidates:
+
+            if not audio_url:
+                continue
+
+            audio_url = str(
+                audio_url
+            ).strip()
+
+            if not audio_url:
+                continue
+
+            if (
+                audio_url.startswith(
+                    "http://"
+                )
+                or
+                audio_url.startswith(
+                    "https://"
+                )
+            ):
+
+                valid_audio.append(
+                    audio_url
+                )
+
+        if valid_audio:
+
+            FAL_AUDIO_MAP[
+                normalized_title
+            ] = valid_audio
+
+            audio_records += 1
+
+    print(
+        f"[FAL] Valid interpretations: "
+        f"{valid_interpretations}"
+    )
+
+    print(
+        f"[FAL] Audio records: "
+        f"{audio_records}"
+    )
+
+    print(
+        f"[FAL] Skipped records: "
+        f"{skipped_records}"
+    )
+
+    print(
+        f"[FAL] Interpretation map size: "
+        f"{len(FAL_TABIR_MAP)}"
+    )
+
+    print(
+        f"[FAL] Audio map size: "
+        f"{len(FAL_AUDIO_MAP)}"
+    )
+
+
+# ==================================
+# Get Interpretation
+# ==================================
+
 def get_interpretation(record):
+
+    title = normalize_title(
+        record.get(
+            "title",
+            ""
+        )
+    )
+
+    # ----------------------------------
+    # Priority 1: fal.json
+    # ----------------------------------
+
+    if title:
+
+        interpretation = FAL_TABIR_MAP.get(
+            title
+        )
+
+        if is_valid_interpretation(
+            interpretation
+        ):
+
+            return interpretation
+
+    # ----------------------------------
+    # Priority 2: Hafez_Tabir.json
+    # ----------------------------------
 
     number = get_ghazal_number(
         record
     )
 
-    if not number:
-        return None
+    if number:
 
-    number = str(
-        number
-    ).strip()
+        number = str(
+            number
+        ).strip()
 
-    interpretation = TABIR_MAP.get(
-        number
-    )
+        interpretation = OLD_TABIR_MAP.get(
+            number
+        )
 
-    if is_valid_interpretation(
-        interpretation
-    ):
+        if is_valid_interpretation(
+            interpretation
+        ):
 
-        return interpretation
+            return interpretation
 
     return None
 
@@ -844,28 +1121,35 @@ def format_fortune(record):
         record
     )
 
+    # ----------------------------------
+    # Always show the ghazal
+    # ----------------------------------
+
     text = (
         "فال حافظ\n"
         f"شماره غزل {number}\n\n"
-        f"{poem}\n\n"
-        "────────────\n\n"
-        "🌌 تعبیر\n\n"
+        f"{poem}"
     )
+
+    # ----------------------------------
+    # Show interpretation only if valid
+    # ----------------------------------
 
     if interpretation:
 
         text += (
-            f"{interpretation}\n\n"
+            "\n\n"
+            "────────────\n\n"
+            "🌌 تعبیر\n\n"
+            f"{interpretation}"
         )
 
-    else:
-
-        text += (
-            "بات تعبیری برای این غزل ندارد.\n\n"
-        )
+    # ----------------------------------
+    # Footer
+    # ----------------------------------
 
     text += (
-        f"{CHANNEL_URL} 🌱"
+        f"\n\n{CHANNEL_URL} 🌱"
     )
 
     return text
@@ -1100,10 +1384,68 @@ def check_audio_url(audio_url):
 
 
 # ==================================
+# Resolve Audio From fal.json
+# ==================================
+
+def resolve_audio_from_fal(
+    record
+):
+
+    title = normalize_title(
+        record.get(
+            "title",
+            ""
+        )
+    )
+
+    if not title:
+        return None
+
+    candidates = FAL_AUDIO_MAP.get(
+        title
+    )
+
+    if not candidates:
+        return None
+
+    for audio_url in candidates:
+
+        if not audio_url:
+            continue
+
+        if negative_cache_get(
+            audio_url
+        ):
+            continue
+
+        if check_audio_url(
+            audio_url
+        ):
+
+            print(
+                "[AUDIO] Using fallback audio "
+                "from fal.json"
+            )
+
+            return audio_url
+
+        negative_cache_put(
+            audio_url
+        )
+
+    return None
+
+
+# ==================================
 # Resolve Final Audio
 # ==================================
 
 def resolve_final_audio_url(record):
+
+    # ----------------------------------
+    # Priority 1:
+    # HafezFilebot.json Audio
+    # ----------------------------------
 
     audio_url = str(
         record.get(
@@ -1122,11 +1464,21 @@ def resolve_final_audio_url(record):
                 audio_url
             ):
 
+                print(
+                    "[AUDIO] Using primary audio "
+                    "from HafezFilebot.json"
+                )
+
                 return audio_url
 
             negative_cache_put(
                 audio_url
             )
+
+    # ----------------------------------
+    # Priority 1 continued:
+    # HafezFilebot.json Source page
+    # ----------------------------------
 
     source_url = str(
         record.get(
@@ -1137,9 +1489,40 @@ def resolve_final_audio_url(record):
 
     if source_url:
 
-        return resolve_audio_from_source(
+        source_audio = resolve_audio_from_source(
             source_url
         )
+
+        if source_audio:
+
+            if check_audio_url(
+                source_audio
+            ):
+
+                print(
+                    "[AUDIO] Using audio resolved "
+                    "from primary source"
+                )
+
+                return source_audio
+
+    # ----------------------------------
+    # Priority 2:
+    # fal.json
+    # ----------------------------------
+
+    fallback_audio = resolve_audio_from_fal(
+        record
+    )
+
+    if fallback_audio:
+
+        return fallback_audio
+
+    print(
+        "[AUDIO] No usable audio found "
+        "in primary or fallback sources."
+    )
 
     return None
 
@@ -1830,16 +2213,31 @@ except Exception as e:
 
 try:
 
-    load_interpretations()
+    load_old_interpretations()
 
 except Exception as e:
 
     print(
-        "[STARTUP] TABIR ERROR:",
+        "[STARTUP] OLD TABIR ERROR:",
         e
     )
 
-    TABIR_MAP = {}
+    OLD_TABIR_MAP = {}
+
+
+try:
+
+    load_fal_file()
+
+except Exception as e:
+
+    print(
+        "[STARTUP] FAL ERROR:",
+        e
+    )
+
+    FAL_TABIR_MAP = {}
+    FAL_AUDIO_MAP = {}
 
 
 if __name__ == "__main__":
