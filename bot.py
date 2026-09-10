@@ -64,23 +64,29 @@ _AUDIO_RESOLVE_LOCKS_GUARD = threading.Lock()
 _THREAD_LOCAL = threading.local()
 
 
+# ==================================
+# HTTP Session
+# ==================================
+
 def get_session():
     session = getattr(_THREAD_LOCAL, "session", None)
 
     if session is None:
         session = requests.Session()
-
         session.headers.update({
             "User-Agent": (
                 "Mozilla/5.0 "
                 "(compatible; HafezBot/1.0)"
             )
-        })
-
+        )
         _THREAD_LOCAL.session = session
 
     return session
 
+
+# ==================================
+# Lock Helpers
+# ==================================
 
 def get_audio_download_lock(audio_url):
     with _AUDIO_DOWNLOAD_LOCKS_GUARD:
@@ -105,22 +111,19 @@ def get_audio_resolve_lock(source_url):
 
 
 # ==================================
-# Audio Cache Functions
+# Audio Byte Cache
 # ==================================
 
 def audio_cache_get(audio_url):
     global _AUDIO_CACHE_BYTES
 
     with _AUDIO_CACHE_LOCK:
-        item = _AUDIO_CACHE.get(audio_url)
+        data = _AUDIO_CACHE.get(audio_url)
 
-        if item is None:
+        if data is None:
             return None
 
-        data, created_at = item
-
         _AUDIO_CACHE.move_to_end(audio_url)
-
         return data
 
 
@@ -140,22 +143,22 @@ def audio_cache_put(audio_url, data):
         old = _AUDIO_CACHE.pop(audio_url, None)
 
         if old is not None:
-            _AUDIO_CACHE_BYTES -= len(old[0])
+            _AUDIO_CACHE_BYTES -= len(old)
 
-        _AUDIO_CACHE[audio_url] = (
-            data,
-            time.time()
-        )
-
+        _AUDIO_CACHE[audio_url] = data
         _AUDIO_CACHE_BYTES += data_size
 
         while (
             len(_AUDIO_CACHE) > AUDIO_CACHE_MAX_ITEMS
             or _AUDIO_CACHE_BYTES > AUDIO_CACHE_MAX_BYTES
         ):
-            _, old_item = _AUDIO_CACHE.popitem(last=False)
-            _AUDIO_CACHE_BYTES -= len(old_item[0])
+            _, removed = _AUDIO_CACHE.popitem(last=False)
+            _AUDIO_CACHE_BYTES -= len(removed)
 
+
+# ==================================
+# Negative Cache
+# ==================================
 
 def negative_cache_get(audio_url):
     now = time.time()
@@ -166,17 +169,21 @@ def negative_cache_get(audio_url):
         if timestamp is None:
             return False
 
-        if now - timestamp > AUDIO_NEGATIVE_CACHE_TTL:
-            del _AUDIO_NEGATIVE_CACHE[audio_url]
-            return False
+        if now - timestamp < AUDIO_NEGATIVE_CACHE_TTL:
+            return True
 
-        return True
+        _AUDIO_NEGATIVE_CACHE.pop(audio_url, None)
+        return False
 
 
 def negative_cache_put(audio_url):
     with _AUDIO_NEGATIVE_LOCK:
         _AUDIO_NEGATIVE_CACHE[audio_url] = time.time()
 
+
+# ==================================
+# Audio URL Cache
+# ==================================
 
 def audio_url_cache_get(source_url):
     now = time.time()
@@ -189,11 +196,11 @@ def audio_url_cache_get(source_url):
 
         audio_url, timestamp = item
 
-        if now - timestamp > AUDIO_URL_CACHE_TTL:
-            del _AUDIO_URL_CACHE[source_url]
-            return None
+        if now - timestamp < AUDIO_URL_CACHE_TTL:
+            return audio_url
 
-        return audio_url
+        _AUDIO_URL_CACHE.pop(source_url, None)
+        return None
 
 
 def audio_url_cache_put(source_url, audio_url):
@@ -211,9 +218,7 @@ def audio_url_cache_put(source_url, audio_url):
 MAIN_KEYBOARD = {
     "keyboard": [
         [
-            {
-                "text": "📜 فال حافظ"
-            }
+            {"text": "📜 فال حافظ"}
         ]
     ],
     "resize_keyboard": True,
@@ -224,9 +229,7 @@ MAIN_KEYBOARD = {
 REPEAT_KEYBOARD = {
     "keyboard": [
         [
-            {
-                "text": "🌿 یک فال دیگر"
-            }
+            {"text": "🌿 یک فال دیگر"}
         ]
     ],
     "resize_keyboard": True,
@@ -244,80 +247,59 @@ HAZALS = []
 def load_data():
     global HAZALS
 
-    if not os.path.exists(DATA_FILE):
-        raise FileNotFoundError(
-            f"Data file not found: {DATA_FILE}"
-        )
-
-    with open(
-        DATA_FILE,
-        "r",
-        encoding="utf-8"
-    ) as f:
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
 
     if not isinstance(data, list):
-        raise ValueError(
-            "HafezFilebot.json must contain a list."
-        )
+        raise ValueError("HafezFilebot.json must contain a list.")
 
-    result = []
+    records = []
 
-    for item in data:
+    for record_id, item in enumerate(data, start=1):
 
         if not isinstance(item, dict):
             continue
 
-        for record_id, record in item.items():
+        poem = str(item.get("Poem", "")).strip()
 
-            if not isinstance(record, dict):
-                continue
+        if not poem:
+            continue
 
-            poem = str(
-                record.get("Poem", "")
-            ).strip()
+        author = str(
+            item.get("Author", "حافظ")
+        ).strip() or "حافظ"
 
-            if not poem:
-                continue
+        book = str(
+            item.get("Book", "غزلیات حافظ")
+        ).strip() or "غزلیات حافظ"
 
-            title = str(
-                record.get("Title", "")
-            ).strip()
+        source = str(
+            item.get("Source", "")
+        ).strip()
 
-            source = str(
-                record.get("Source", "")
-            ).strip()
+        title = str(
+            item.get("Title", "")
+        ).strip()
 
-            audio = str(
-                record.get("Audio", "")
-            ).strip()
+        audio = str(
+            item.get("Audio", "")
+        ).strip()
 
-            author = str(
-                record.get("Author", "حافظ")
-            ).strip() or "حافظ"
+        records.append({
+            "record_id": str(record_id),
+            "author": author,
+            "book": book,
+            "poem": poem,
+            "source": source,
+            "title": title,
+            "audio": audio
+        })
 
-            book = str(
-                record.get(
-                    "Book",
-                    "غزلیات حافظ"
-                )
-            ).strip() or "غزلیات حافظ"
-
-            result.append({
-                "record_id": str(record_id),
-                "author": author,
-                "book": book,
-                "poem": poem,
-                "source": source,
-                "title": title,
-                "audio": audio
-            })
-
-    HAZALS = result
+    HAZALS = records
 
     audio_count = sum(
         1 for item in HAZALS
-        if item.get("audio")
+        if item.get("audio") or item.get("source")
     )
 
     print(
@@ -327,24 +309,16 @@ def load_data():
 
 
 # ==================================
-# Soroush API
+# Soroush Plus API
 # ==================================
 
-def splus_request(
-    method,
-    data=None,
-    files=None
-):
+def splus_request(method, data=None, files=None):
 
     url = f"{API}/{method}"
-
     start_time = time.time()
 
     try:
-
-        print(
-            f"[API] START {method}"
-        )
+        print(f"[API] START {method}")
 
         response = get_session().post(
             url,
@@ -389,10 +363,14 @@ def splus_request(
         return None
 
 
-def delete_message(
-    chat_id,
-    message_id
-):
+# ==================================
+# Message Helpers
+# ==================================
+
+def delete_message(chat_id, message_id):
+
+    if not message_id:
+        return None
 
     return splus_request(
         "deleteMessage",
@@ -427,14 +405,7 @@ def send_message(
     )
 
 
-# ==================================
-# Message Helpers
-# ==================================
-
-def split_message(
-    text,
-    max_length=MAX_MESSAGE_LENGTH
-):
+def split_message(text, max_length=MAX_MESSAGE_LENGTH):
 
     if len(text) <= max_length:
         return [text]
@@ -450,14 +421,14 @@ def split_message(
             max_length
         )
 
-        if cut < 0:
+        if cut < max_length // 2:
             cut = remaining.rfind(
                 " ",
                 0,
                 max_length
             )
 
-        if cut < 0:
+        if cut < max_length // 2:
             cut = max_length
 
         chunks.append(
@@ -524,17 +495,12 @@ def get_ghazal_number(record):
 
 def clean_poem(poem):
 
-    if not poem:
-        return ""
-
     poem = str(poem)
 
     poem = poem.replace(
         "\r\n",
         "\n"
-    )
-
-    poem = poem.replace(
+    ).replace(
         "\r",
         "\n"
     )
@@ -551,11 +517,9 @@ def clean_poem(poem):
 def format_fortune(record):
 
     number = get_ghazal_number(record)
-
     poem = clean_poem(
         record.get("poem", "")
     )
-
     source = str(
         record.get("source", "")
     ).strip()
@@ -572,117 +536,104 @@ def format_fortune(record):
     return text
 
 
-def send_fortune(
-    chat_id,
-    record
-):
+def send_fortune(chat_id, record):
 
     text = format_fortune(record)
-
     chunks = split_message(text)
 
-    results = []
+    success = True
 
     for index, chunk in enumerate(chunks):
 
-        is_last = (
-            index == len(chunks) - 1
-        )
-
-        markup = (
-            REPEAT_KEYBOARD
-            if is_last
-            else None
-        )
+        is_last = index == len(chunks) - 1
 
         result = send_message(
             chat_id,
             chunk,
-            reply_markup=markup
+            reply_markup=(
+                REPEAT_KEYBOARD
+                if is_last
+                else None
+            )
         )
 
-        results.append(result)
+        if result is None:
+            success = False
 
-    return all(
-        result is not None
-        for result in results
-    )
+    return success
 
 
 # ==================================
 # Audio URL Extraction
 # ==================================
 
-def extract_audio_urls(
-    html,
-    base_url
-):
+def extract_audio_urls(html, base_url):
 
     candidates = []
 
     absolute_urls = re.findall(
-        r'https?://[^"\'>\s]+?\.(?:ogg|mp3)(?:\?[^"\'>\s]*)?',
+        r'https?://[^"\']+\.(?:ogg|mp3)(?:\?[^"\']*)?',
         html,
-        re.IGNORECASE
+        flags=re.IGNORECASE
     )
 
-    for url in absolute_urls:
-
-        url = url.replace(
-            "&amp;",
-            "&"
-        )
-
-        candidates.append(url)
+    candidates.extend(
+        absolute_urls
+    )
 
     relative_urls = re.findall(
-        r'["\']([^"\']+\.(?:ogg|mp3)(?:\?[^"\']*)?)["\']',
+        r'(?:"|\')([^"\']+\.(?:ogg|mp3)(?:\?[^"\']*)?)(?:"|\')',
         html,
-        re.IGNORECASE
+        flags=re.IGNORECASE
     )
 
-    for relative in relative_urls:
+    for relative_url in relative_urls:
 
-        full_url = urljoin(
+        absolute_url = urljoin(
             base_url,
-            relative
+            relative_url
         )
 
-        candidates.append(full_url)
+        candidates.append(
+            absolute_url
+        )
 
-    # Remove duplicates while preserving order
     unique = []
 
     seen = set()
 
     for url in candidates:
 
-        if url not in seen:
-            seen.add(url)
-            unique.append(url)
+        url = url.strip()
 
-    # Prefer Ganjoor audio
-    ganjoor = [
+        if not url:
+            continue
+
+        if url in seen:
+            continue
+
+        seen.add(url)
+        unique.append(url)
+
+    preferred = [
         url for url in unique
         if "i.ganjoor.net" in url.lower()
     ]
 
-    if ganjoor:
-        return ganjoor
+    if preferred:
+        return preferred + [
+            url for url in unique
+            if url not in preferred
+        ]
 
     return unique
 
 
 # ==================================
-# Resolve Audio From Source
+# Resolve Audio From Ganjoor
 # ==================================
 
-def resolve_audio_from_source(
-    source_url
-):
-
-    if not source_url:
-        return None
+def resolve_audio_from_source(source_url):
 
     cached = audio_url_cache_get(
         source_url
@@ -704,12 +655,11 @@ def resolve_audio_from_source(
         if cached:
             return cached
 
-        try:
+        print(
+            f"[AUDIO] Resolving source: {source_url}"
+        )
 
-            print(
-                f"[AUDIO] Resolving source: "
-                f"{source_url}"
-            )
+        try:
 
             response = get_session().get(
                 source_url,
@@ -717,12 +667,10 @@ def resolve_audio_from_source(
             )
 
             if response.status_code != 200:
-
                 print(
-                    "[AUDIO] Source page status:",
+                    "[AUDIO] Source status:",
                     response.status_code
                 )
-
                 return None
 
             candidates = extract_audio_urls(
@@ -731,35 +679,37 @@ def resolve_audio_from_source(
             )
 
             if not candidates:
-
                 print(
-                    "[AUDIO] No audio URL found."
+                    "[AUDIO] No audio candidates found."
                 )
-
                 return None
 
-            # Prefer OGG
             ogg_candidates = [
                 url for url in candidates
                 if ".ogg" in url.lower()
             ]
 
-            selected = (
-                ogg_candidates[0]
-                if ogg_candidates
-                else candidates[0]
+            ordered = (
+                ogg_candidates + [
+                    url for url in candidates
+                    if url not in ogg_candidates
+                ]
             )
 
-            audio_url_cache_put(
-                source_url,
-                selected
-            )
+            for audio_url in ordered:
 
-            print(
-                f"[AUDIO] Resolved: {selected}"
-            )
+                if check_audio_url(audio_url):
 
-            return selected
+                    audio_url_cache_put(
+                        source_url,
+                        audio_url
+                    )
+
+                    print(
+                        f"[AUDIO] Resolved: {audio_url}"
+                    )
+
+                    return audio_url
 
         except Exception as e:
 
@@ -768,17 +718,10 @@ def resolve_audio_from_source(
                 e
             )
 
-            return None
+        return None
 
-
-# ==================================
-# Check Audio URL
-# ==================================
 
 def check_audio_url(audio_url):
-
-    if not audio_url:
-        return False
 
     try:
 
@@ -788,54 +731,49 @@ def check_audio_url(audio_url):
             timeout=REQUEST_TIMEOUT
         )
 
-        return response.status_code == 200
+        status = response.status_code
+
+        response.close()
+
+        return status == 200
 
     except Exception as e:
 
         print(
-            "[AUDIO] Check error:",
+            "[AUDIO] URL check error:",
             e
         )
 
         return False
 
 
-# ==================================
-# Resolve Final Audio
-# ==================================
-
 def resolve_final_audio_url(record):
 
-    audio_url = str(
+    direct_audio = str(
         record.get("audio", "")
     ).strip()
 
-    if audio_url:
+    if direct_audio:
 
         if not negative_cache_get(
-            audio_url
+            direct_audio
         ):
 
             if check_audio_url(
-                audio_url
+                direct_audio
             ):
-                return audio_url
-
-            negative_cache_put(
-                audio_url
-            )
+                return direct_audio
 
     source_url = str(
         record.get("source", "")
     ).strip()
 
-    if source_url:
+    if not source_url:
+        return None
 
-        return resolve_audio_from_source(
-            source_url
-        )
-
-    return None
+    return resolve_audio_from_source(
+        source_url
+    )
 
 
 # ==================================
@@ -844,25 +782,26 @@ def resolve_final_audio_url(record):
 
 def download_audio(audio_url):
 
-    if not audio_url:
-        return None
-
     cached = audio_cache_get(
         audio_url
     )
 
     if cached is not None:
+
         print(
-            "[AUDIO] Cache HIT"
+            f"[AUDIO] Cache hit: {audio_url}"
         )
+
         return cached
 
     if negative_cache_get(
         audio_url
     ):
+
         print(
-            "[AUDIO] Negative cache HIT"
+            f"[AUDIO] Negative cache hit: {audio_url}"
         )
+
         return None
 
     lock = get_audio_download_lock(
@@ -876,17 +815,13 @@ def download_audio(audio_url):
         )
 
         if cached is not None:
-            print(
-                "[AUDIO] Cache HIT after lock"
-            )
             return cached
 
-        try:
+        print(
+            f"[AUDIO] Downloading: {audio_url}"
+        )
 
-            print(
-                f"[AUDIO] Downloading: "
-                f"{audio_url}"
-            )
+        try:
 
             response = get_session().get(
                 audio_url,
@@ -895,12 +830,12 @@ def download_audio(audio_url):
 
             if response.status_code == 404:
 
-                print(
-                    "[AUDIO] 404"
-                )
-
                 negative_cache_put(
                     audio_url
+                )
+
+                print(
+                    "[AUDIO] Download 404."
                 )
 
                 return None
@@ -917,11 +852,6 @@ def download_audio(audio_url):
             data = response.content
 
             if not data:
-
-                print(
-                    "[AUDIO] Empty audio response."
-                )
-
                 return None
 
             audio_cache_put(
@@ -952,16 +882,11 @@ def download_audio(audio_url):
 
 def get_audio_title(record):
 
-    number = get_ghazal_number(
-        record
-    )
-
-    return f"غزل شمارهٔ {number}"
+    return "شعرکده سروش پلاس"
 
 
 def get_audio_performer(record):
 
-    # فقط این مقدار تغییر کرده است.
     return "شعرکده سروش پلاس"
 
 
@@ -969,10 +894,7 @@ def get_audio_performer(record):
 # Send Audio
 # ==================================
 
-def send_audio(
-    chat_id,
-    record
-):
+def send_audio(chat_id, record):
 
     audio_url = resolve_final_audio_url(
         record
@@ -981,7 +903,7 @@ def send_audio(
     if not audio_url:
 
         print(
-            "[AUDIO] No audio URL available."
+            "[AUDIO] No final audio URL."
         )
 
         return None
@@ -993,24 +915,24 @@ def send_audio(
     if not audio_data:
 
         print(
-            "[AUDIO] Audio download failed."
+            "[AUDIO] No audio data."
         )
 
         return None
 
-    lower_url = audio_url.lower()
+    number = get_ghazal_number(
+        record
+    )
 
-    if ".mp3" in lower_url:
+    if ".mp3" in audio_url.lower():
+
         extension = "mp3"
         mime_type = "audio/mpeg"
 
     else:
+
         extension = "ogg"
         mime_type = "audio/ogg"
-
-    number = get_ghazal_number(
-        record
-    )
 
     filename = (
         f"غزل {number} - حافظ - گنجور."
@@ -1026,15 +948,12 @@ def send_audio(
     )
 
     print(
-        f"[AUDIO] Sending Audio | "
+        "[AUDIO] Sending Audio | "
         f"filename={filename} | "
         f"title={audio_title} | "
         f"performer={audio_performer}"
     )
 
-    # مهم:
-    # قبلاً sendVoice و فیلد voice استفاده می‌شد.
-    # اکنون فایل به‌صورت Audio ارسال می‌شود.
     files = {
         "audio": (
             filename,
@@ -1055,11 +974,10 @@ def send_audio(
 
 
 # ==================================
-# Chat Control State
+# Chat Control
 # ==================================
 
 CHAT_CONTROL_MESSAGES = {}
-
 CHAT_CONTROL_LOCK = threading.RLock()
 
 
@@ -1068,42 +986,35 @@ def set_control_message(
     message_id
 ):
 
-    with CHAT_CONTROL_LOCK:
+    if not message_id:
+        return
 
+    with CHAT_CONTROL_LOCK:
         CHAT_CONTROL_MESSAGES[
             str(chat_id)
         ] = message_id
 
 
-def get_control_message(
-    chat_id
-):
+def get_control_message(chat_id):
 
     with CHAT_CONTROL_LOCK:
-
         return CHAT_CONTROL_MESSAGES.get(
             str(chat_id)
         )
 
 
-def remove_control_message(
-    chat_id
-):
+def remove_control_message(chat_id):
 
     with CHAT_CONTROL_LOCK:
-
         return CHAT_CONTROL_MESSAGES.pop(
             str(chat_id),
             None
         )
 
 
-def clear_control_message(
-    chat_id
-):
+def clear_control_message(chat_id):
 
     with CHAT_CONTROL_LOCK:
-
         CHAT_CONTROL_MESSAGES.pop(
             str(chat_id),
             None
@@ -1164,8 +1075,6 @@ def process_fortune(
                 chat_id
             )
 
-        # Audio is sent after the poem.
-        # This preserves the existing behavior.
         send_audio(
             chat_id,
             record
@@ -1195,40 +1104,32 @@ def webhook():
             silent=True
         ) or {}
 
-        message = update.get(
-            "message"
-        ) or update.get(
-            "edited_message"
+        message = (
+            update.get("message")
+            or update.get("edited_message")
         )
 
         if not message:
             return "ok"
 
-        chat = message.get(
-            "chat"
-        ) or {}
+        chat = message.get("chat") or {}
 
-        chat_id = chat.get(
-            "id"
-        )
+        chat_id = chat.get("id")
 
         if chat_id is None:
             return "ok"
 
         text = str(
-            message.get(
-                "text",
-                ""
-            )
+            message.get("text", "")
         ).strip()
 
         message_id = message.get(
             "message_id"
         )
 
-        # ------------------------------
+        # ----------------------------------
         # /start
-        # ------------------------------
+        # ----------------------------------
 
         if text == "/start":
 
@@ -1246,27 +1147,20 @@ def webhook():
                 reply_markup=MAIN_KEYBOARD
             )
 
-            if result:
+            if (
+                isinstance(result, dict)
+                and result.get("result")
+            ):
 
-                sent_message_id = None
+                sent_message = result[
+                    "result"
+                ]
 
-                if isinstance(
-                    result,
-                    dict
-                ):
-
-                    result_data = result.get(
-                        "result"
+                sent_message_id = (
+                    sent_message.get(
+                        "message_id"
                     )
-
-                    if isinstance(
-                        result_data,
-                        dict
-                    ):
-
-                        sent_message_id = result_data.get(
-                            "message_id"
-                        )
+                )
 
                 if sent_message_id:
 
@@ -1275,55 +1169,45 @@ def webhook():
                         sent_message_id
                     )
 
-            if message_id:
-
-                delete_message(
-                    chat_id,
-                    message_id
-                )
+            delete_message(
+                chat_id,
+                message_id
+            )
 
             return "ok"
 
-        # ------------------------------
+        # ----------------------------------
         # Repeat
-        # ------------------------------
+        # ----------------------------------
 
         if text == "🌿 یک فال دیگر":
 
-            if message_id:
-
-                delete_message(
-                    chat_id,
-                    message_id
-                )
+            delete_message(
+                chat_id,
+                message_id
+            )
 
             result = send_message(
                 chat_id,
-                "🌿 دوباره نیت کنید و روی «📜 فال حافظ» بزنید.",
+                "🌿 دوباره نیت کنید و روی "
+                "«📜 فال حافظ» بزنید.",
                 reply_markup=MAIN_KEYBOARD
             )
 
-            if result:
+            if (
+                isinstance(result, dict)
+                and result.get("result")
+            ):
 
-                sent_message_id = None
+                sent_message = result[
+                    "result"
+                ]
 
-                if isinstance(
-                    result,
-                    dict
-                ):
-
-                    result_data = result.get(
-                        "result"
+                sent_message_id = (
+                    sent_message.get(
+                        "message_id"
                     )
-
-                    if isinstance(
-                        result_data,
-                        dict
-                    ):
-
-                        sent_message_id = result_data.get(
-                            "message_id"
-                        )
+                )
 
                 if sent_message_id:
 
@@ -1334,9 +1218,9 @@ def webhook():
 
             return "ok"
 
-        # ------------------------------
+        # ----------------------------------
         # Fortune
-        # ------------------------------
+        # ----------------------------------
 
         if text == "📜 فال حافظ":
 
