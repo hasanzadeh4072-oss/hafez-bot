@@ -265,19 +265,6 @@ MAIN_KEYBOARD = {
 }
 
 
-REPEAT_KEYBOARD = {
-    "keyboard": [
-        [
-            {
-                "text": "🌿 یک فال دیگر"
-            }
-        ]
-    ],
-    "resize_keyboard": True,
-    "one_time_keyboard": False
-}
-
-
 # ==================================
 # Data
 # ==================================
@@ -870,34 +857,31 @@ def send_fortune(
 
     results = []
 
-    for index, chunk in enumerate(
-        chunks
-    ):
-
-        is_last = (
-            index == len(chunks) - 1
-        )
-
-        markup = (
-            MAIN_KEYBOARD
-            if is_last
-            else None
-        )
+    for chunk in chunks:
 
         result = send_message(
             chat_id,
             chunk,
-            reply_markup=markup
+            reply_markup=MAIN_KEYBOARD
         )
 
         results.append(
             result
         )
 
-    return all(
+    if not all(
         result is not None
         for result in results
+    ):
+        return False
+
+    result = send_message(
+        chat_id,
+        "🌿 نیت کنید و روی «📜 فال حافظ» بزنید.",
+        reply_markup=MAIN_KEYBOARD
     )
+
+    return result is not None
 
 
 # ==================================
@@ -1615,56 +1599,6 @@ def webhook():
             return "ok"
 
         # ------------------------------
-        # Repeat
-        # ------------------------------
-
-        if text == "🌿 یک فال دیگر":
-
-            if message_id:
-
-                delete_message(
-                    chat_id,
-                    message_id
-                )
-
-            result = send_message(
-                chat_id,
-                "🌿 دوباره نیت کنید و روی «📜 فال حافظ» بزنید.",
-                reply_markup=MAIN_KEYBOARD
-            )
-
-            if result:
-
-                sent_message_id = None
-
-                if isinstance(
-                    result,
-                    dict
-                ):
-
-                    result_data = result.get(
-                        "result"
-                    )
-
-                    if isinstance(
-                        result_data,
-                        dict
-                    ):
-
-                        sent_message_id = result_data.get(
-                            "message_id"
-                        )
-
-                if sent_message_id:
-
-                    set_control_message(
-                        chat_id,
-                        sent_message_id
-                    )
-
-            return "ok"
-
-        # ------------------------------
         # Fortune
         # ------------------------------
 
@@ -1882,3 +1816,6 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=port
     )
+
+
+
