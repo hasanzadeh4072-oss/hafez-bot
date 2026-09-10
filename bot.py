@@ -45,7 +45,7 @@ REQUEST_TIMEOUT = (CONNECT_TIMEOUT, READ_TIMEOUT)
 # About
 # ==================================
 
-ABOUT_TEXT = """🌿 درباره شعرکده
+ABOUT_TEXT = """🌿 درباره ما
 
 از سال ۱۳۹۵ با کانال «شعرکده» در پیام‌رسان سروش پلاس همراه شما هستیم.
 
@@ -59,10 +59,9 @@ ABOUT_TEXT = """🌿 درباره شعرکده
 🇮🇷 ایران زیبا
 را با شما به اشتراک می‌گذاریم.
 
-خوشحال می‌شویم پذیرای شما در کانال «شعرکده» باشیم. 🌱
+خوشحال می‌شویم پذیرای شما در کانال <a href="https://splus.ir/life_m23">شعرکده</a> باشیم. 🌱
 
-🔗 لینک کانال شعرکده:
-https://splus.ir/life_m23"""
+🔗 <a href="https://splus.ir/life_m23">لینک کانال شعرکده</a>"""
 
 
 # ==================================
@@ -1776,8 +1775,9 @@ def webhook():
             send_message(
                 chat_id,
                 (
-                    "📣 <a href=\"https://splus.ir/life_m23\">شعرکده</a>\n\n"
-                    "برای ورود مستقیم به کانال شعرکده:\n\n"
+                    "📣 <a href=\"https://splus.ir/life_m23\">کانال شعرکده</a>\n\n"
+                    "برای ورود مستقیم به <a href=\"https://splus.ir/life_m23\">کانال شعرکده</a> "
+                    "از لینک زیر استفاده کنید.\n\n"
                     "🔗 <a href=\"https://splus.ir/life_m23\">https://splus.ir/life_m23</a>"
                 ),
                 reply_markup=MAIN_KEYBOARD
@@ -1881,4 +1881,4 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=port
-        )
+    )
