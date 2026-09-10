@@ -30,6 +30,9 @@ DATA_FILE = "HafezFilebot.json"
 TABIR_FILE = "Hafez_Tabir.json"
 CHANNEL_URL = "https://splus.ir/@LIFE_M23"
 
+POETRY_CARD_BOT_URL = "https://splus.ir/@PoetryCardBot"
+ANONYMOUS_BOT_URL = "https://splus.ir/@PayamNashenasBot"
+
 MAX_MESSAGE_LENGTH = 4000
 
 CONNECT_TIMEOUT = 5
@@ -100,7 +103,7 @@ def get_audio_resolve_lock(source_url):
 
         if lock is None:
             lock = threading.Lock()
-            _AUDIO_RESOLVE_LOCKS[source_url] = lock
+            _AUDIO_RESOLVE_LOCKS_GUARD[source_url] = lock
 
         return lock
 
@@ -206,33 +209,99 @@ def audio_url_cache_put(source_url, audio_url):
 
 
 # ==================================
-# Keyboards
+# Main Menu
 # ==================================
 
-MAIN_KEYBOARD = {
-    "keyboard": [
+MAIN_INLINE_KEYBOARD = {
+    "inline_keyboard": [
         [
             {
-                "text": "📜 فال حافظ"
+                "text": "📜 فال حافظ",
+                "callback_data": "fortune"
+            }
+        ],
+        [
+            {
+                "text": "🎨 ساختن کارت شعر",
+                "url": POETRY_CARD_BOT_URL
+            },
+            {
+                "text": "🌿 درباره ما",
+                "callback_data": "about"
+            }
+        ],
+        [
+            {
+                "text": "💬 ارتباط با مدیر",
+                "url": ANONYMOUS_BOT_URL
+            },
+            {
+                "text": "📣 کانال شعرکده",
+                "url": CHANNEL_URL
             }
         ]
-    ],
-    "resize_keyboard": True,
-    "one_time_keyboard": False
+    ]
 }
 
 
-REPEAT_KEYBOARD = {
-    "keyboard": [
+REPEAT_INLINE_KEYBOARD = {
+    "inline_keyboard": [
         [
             {
-                "text": "🌿 یک فال دیگر"
+                "text": "🌿 یک فال دیگر",
+                "callback_data": "fortune"
+            }
+        ],
+        [
+            {
+                "text": "🏠 منوی اصلی",
+                "callback_data": "main_menu"
             }
         ]
-    ],
-    "resize_keyboard": True,
-    "one_time_keyboard": False
+    ]
 }
+
+
+ABOUT_INLINE_KEYBOARD = {
+    "inline_keyboard": [
+        [
+            {
+                "text": "📣 ورود به کانال شعرکده",
+                "url": CHANNEL_URL
+            }
+        ],
+        [
+            {
+                "text": "🏠 منوی اصلی",
+                "callback_data": "main_menu"
+            }
+        ]
+    ]
+}
+
+
+# ==================================
+# About Text
+# ==================================
+
+ABOUT_TEXT = """🌿 درباره شعرکده
+
+از سال ۱۳۹۵ با کانال «شعرکده» در پیام‌رسان سروش پلاس همراه شما هستیم.
+
+در «شعرکده» بخش‌های متنوعی از جمله:
+📜 شعر
+📖 برگی از کتاب
+🎬 دیالوگ ماندگار
+💬 بگو مگو
+🪶 ضرب‌المثل
+🎵 موزیک‌گردی
+🇮🇷 ایران زیبا
+را با شما به اشتراک می‌گذاریم.
+
+خوشحال می‌شویم پذیرای شما در کانال «شعرکده» باشیم. 🌱
+
+🔗 لینک کانال شعرکده:
+@LIFE_M23"""
 
 
 # ==================================
@@ -241,9 +310,6 @@ REPEAT_KEYBOARD = {
 
 HAZALS = []
 
-# کلید این دیکشنری = شماره غزل
-# مثال:
-# TABIR_MAP["265"] = تعبیر غزل شماره 265
 TABIR_MAP = {}
 
 
@@ -263,8 +329,6 @@ def is_valid_interpretation(interpretation):
     if not interpretation:
         return False
 
-    # فقط برای جلوگیری از نمایش متن‌های صریحاً
-    # نامعتبر/فاقد تعبیر استفاده می‌شود.
     normalized = interpretation.replace(
         " ",
         ""
@@ -339,20 +403,6 @@ def load_interpretations():
         f"[TABIR] Total records: {total_records}"
     )
 
-    # ==========================================================
-    # مهم:
-    #
-    # Hafez_Tabir.json به صورت لیست مرتب شده است.
-    #
-    # رکورد اول  = غزل 1
-    # رکورد دوم  = غزل 2
-    # ...
-    # رکورد 265  = غزل 265
-    #
-    # بنابراین دیگر متن poem را با متن HafezFilebot
-    # مقایسه نمی‌کنیم.
-    # ==========================================================
-
     for index, item in enumerate(
         data,
         start=1
@@ -393,10 +443,6 @@ def load_interpretations():
 
             continue
 
-        # ======================================================
-        # ذخیره مستقیم بر اساس شماره غزل
-        # ======================================================
-
         TABIR_MAP[ghazal_number] = interpretation
 
         valid_records += 1
@@ -419,7 +465,6 @@ def load_interpretations():
 
 def get_interpretation(record):
 
-    # شماره واقعی غزل را از همان رکورد می‌گیریم.
     number = get_ghazal_number(
         record
     )
@@ -430,10 +475,6 @@ def get_interpretation(record):
     number = str(
         number
     ).strip()
-
-    # ==========================================================
-    # تعبیر فقط بر اساس شماره غزل
-    # ==========================================================
 
     interpretation = TABIR_MAP.get(
         number
@@ -661,6 +702,21 @@ def send_message(
     )
 
 
+def answer_callback_query(
+    callback_query_id
+):
+
+    if not callback_query_id:
+        return None
+
+    return splus_request(
+        "answerCallbackQuery",
+        data={
+            "callback_query_id": callback_query_id
+        }
+    )
+
+
 # ==================================
 # Message Helpers
 # ==================================
@@ -723,8 +779,6 @@ def get_ghazal_number(record):
         )
     )
 
-    # روش اصلی:
-    # https://ganjoor.net/hafez/ghazal/sh265/
     match = re.search(
         r"/sh(\d+)",
         source,
@@ -810,10 +864,6 @@ def format_fortune(record):
         )
     )
 
-    # ==========================================================
-    # تعبیر همین غزل بر اساس شماره غزل
-    # ==========================================================
-
     interpretation = get_interpretation(
         record
     )
@@ -869,7 +919,7 @@ def send_fortune(
         )
 
         markup = (
-            REPEAT_KEYBOARD
+            REPEAT_INLINE_KEYBOARD
             if is_last
             else None
         )
@@ -935,7 +985,6 @@ def extract_audio_urls(
             full_url
         )
 
-    # Remove duplicates while preserving order
     unique = []
 
     seen = set()
@@ -947,7 +996,6 @@ def extract_audio_urls(
             seen.add(url)
             unique.append(url)
 
-    # Prefer Ganjoor audio
     ganjoor = [
         url
         for url in unique
@@ -1025,7 +1073,6 @@ def resolve_audio_from_source(
 
                 return None
 
-            # Prefer OGG
             ogg_candidates = [
                 url
                 for url in candidates
@@ -1262,7 +1309,6 @@ def get_audio_title(record):
 
 def get_audio_performer(record):
 
-    # همان مقدار موجود در نسخه سالم
     return "شعرکده سروش پلاس"
 
 
@@ -1411,6 +1457,29 @@ def clear_control_message(
 
 
 # ==================================
+# Main Menu
+# ==================================
+
+def send_main_menu(chat_id):
+
+    return send_message(
+        chat_id,
+        "🌿 به منوی اصلی خوش آمدید.\n\n"
+        "لطفاً یکی از گزینه‌های زیر را انتخاب کنید:",
+        reply_markup=MAIN_INLINE_KEYBOARD
+    )
+
+
+def send_about(chat_id):
+
+    return send_message(
+        chat_id,
+        ABOUT_TEXT,
+        reply_markup=ABOUT_INLINE_KEYBOARD
+    )
+
+
+# ==================================
 # Fortune Processing
 # ==================================
 
@@ -1426,7 +1495,7 @@ def process_fortune(
             send_message(
                 chat_id,
                 "متأسفانه مجموعه غزل‌های حافظ در دسترس نیست.",
-                reply_markup=MAIN_KEYBOARD
+                reply_markup=MAIN_INLINE_KEYBOARD
             )
 
             return
@@ -1468,17 +1537,6 @@ def process_fortune(
 
         if success:
 
-            old_control = get_control_message(
-                chat_id
-            )
-
-            if old_control:
-
-                delete_message(
-                    chat_id,
-                    old_control
-                )
-
             if fortune_message_id:
 
                 delete_message(
@@ -1490,8 +1548,6 @@ def process_fortune(
                 chat_id
             )
 
-        # Audio is sent after the poem.
-        # Existing behavior preserved.
         send_audio(
             chat_id,
             record
@@ -1503,6 +1559,113 @@ def process_fortune(
             "[FORTUNE] ERROR:",
             e
         )
+
+
+# ==================================
+# Callback Query Processing
+# ==================================
+
+def process_callback_query(
+    callback_query
+):
+
+    if not isinstance(
+        callback_query,
+        dict
+    ):
+        return
+
+    callback_id = callback_query.get(
+        "id"
+    )
+
+    data = str(
+        callback_query.get(
+            "data",
+            ""
+        )
+    ).strip()
+
+    message = callback_query.get(
+        "message"
+    ) or {}
+
+    chat = message.get(
+        "chat"
+    ) or {}
+
+    chat_id = chat.get(
+        "id"
+    )
+
+    message_id = message.get(
+        "message_id"
+    )
+
+    if chat_id is None:
+        return
+
+    # پاسخ سریع به callback
+    answer_callback_query(
+        callback_id
+    )
+
+    # ------------------------------
+    # Main Menu
+    # ------------------------------
+
+    if data == "main_menu":
+
+        if message_id:
+
+            delete_message(
+                chat_id,
+                message_id
+            )
+
+        send_main_menu(
+            chat_id
+        )
+
+        return
+
+    # ------------------------------
+    # About
+    # ------------------------------
+
+    if data == "about":
+
+        if message_id:
+
+            delete_message(
+                chat_id,
+                message_id
+            )
+
+        send_about(
+            chat_id
+        )
+
+        return
+
+    # ------------------------------
+    # Fortune
+    # ------------------------------
+
+    if data == "fortune":
+
+        thread = threading.Thread(
+            target=process_fortune,
+            args=(
+                chat_id,
+                message_id
+            ),
+            daemon=True
+        )
+
+        thread.start()
+
+        return
 
 
 # ==================================
@@ -1521,6 +1684,26 @@ def webhook():
             silent=True
         ) or {}
 
+        # ==================================
+        # Callback Query
+        # ==================================
+
+        callback_query = update.get(
+            "callback_query"
+        )
+
+        if callback_query:
+
+            process_callback_query(
+                callback_query
+            )
+
+            return "ok"
+
+        # ==================================
+        # Message
+        # ==================================
+
         message = update.get(
             "message"
         ) or update.get(
@@ -1528,6 +1711,7 @@ def webhook():
         )
 
         if not message:
+
             return "ok"
 
         chat = message.get(
@@ -1539,6 +1723,7 @@ def webhook():
         )
 
         if chat_id is None:
+
             return "ok"
 
         text = str(
@@ -1558,18 +1743,8 @@ def webhook():
 
         if text == "/start":
 
-            welcome_text = (
-                "🌿 به فال حافظ خوش آمدید.\n\n"
-                "برای گرفتن فال، روی دکمه "
-                "«📜 فال حافظ» بزنید.\n\n"
-                "هر بار یک غزل تصادفی از "
-                "غزلیات حافظ برای شما انتخاب می‌شود."
-            )
-
-            result = send_message(
-                chat_id,
-                welcome_text,
-                reply_markup=MAIN_KEYBOARD
+            result = send_main_menu(
+                chat_id
             )
 
             if result:
@@ -1611,60 +1786,25 @@ def webhook():
             return "ok"
 
         # ------------------------------
-        # Repeat
-        # ------------------------------
-
-        if text == "🌿 یک فال دیگر":
-
-            if message_id:
-
-                delete_message(
-                    chat_id,
-                    message_id
-                )
-
-            result = send_message(
-                chat_id,
-                "🌿 دوباره نیت کنید و روی «📜 فال حافظ» بزنید.",
-                reply_markup=MAIN_KEYBOARD
-            )
-
-            if result:
-
-                sent_message_id = None
-
-                if isinstance(
-                    result,
-                    dict
-                ):
-
-                    result_data = result.get(
-                        "result"
-                    )
-
-                    if isinstance(
-                        result_data,
-                        dict
-                    ):
-
-                        sent_message_id = result_data.get(
-                            "message_id"
-                        )
-
-                if sent_message_id:
-
-                    set_control_message(
-                        chat_id,
-                        sent_message_id
-                    )
-
-            return "ok"
-
-        # ------------------------------
-        # Fortune
+        # Legacy text button support
         # ------------------------------
 
         if text == "📜 فال حافظ":
+
+            thread = threading.Thread(
+                target=process_fortune,
+                args=(
+                    chat_id,
+                    message_id
+                ),
+                daemon=True
+            )
+
+            thread.start()
+
+            return "ok"
+
+        if text == "🌿 یک فال دیگر":
 
             thread = threading.Thread(
                 target=process_fortune,
@@ -1775,7 +1915,4 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=port
-    )
-
-
-
+        )
