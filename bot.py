@@ -4,7 +4,6 @@ import random
 import time
 import threading
 import re
-import unicodedata
 from collections import OrderedDict
 from urllib.parse import urljoin
 
@@ -241,124 +240,11 @@ REPEAT_KEYBOARD = {
 # ==================================
 
 HAZALS = []
+
+# کلید این دیکشنری = شماره غزل
+# مثال:
+# TABIR_MAP["265"] = تعبیر غزل شماره 265
 TABIR_MAP = {}
-
-
-# ==================================
-# Text Normalization
-# ==================================
-
-def normalize_text(text):
-
-    if text is None:
-        return ""
-
-    text = str(text)
-
-    # Unicode normalization
-    text = unicodedata.normalize(
-        "NFKC",
-        text
-    )
-
-    # Arabic/Persian character normalization
-    replacements = {
-        "ي": "ی",
-        "ى": "ی",
-        "ك": "ک",
-        "ۀ": "ه",
-        "ة": "ه",
-        "ؤ": "و",
-        "إ": "ا",
-        "أ": "ا",
-        "ٱ": "ا",
-    }
-
-    for old, new in replacements.items():
-        text = text.replace(
-            old,
-            new
-        )
-
-    # Remove Tatweel
-    text = text.replace(
-        "ـ",
-        ""
-    )
-
-    # Remove invisible characters
-    text = text.replace(
-        "\ufeff",
-        ""
-    )
-
-    text = text.replace(
-        "\u200b",
-        ""
-    )
-
-    text = text.replace(
-        "\u200d",
-        ""
-    )
-
-    # Zero-width non-joiner becomes normal space
-    text = text.replace(
-        "\u200c",
-        " "
-    )
-
-    # Normalize line endings
-    text = text.replace(
-        "\r\n",
-        "\n"
-    )
-
-    text = text.replace(
-        "\r",
-        "\n"
-    )
-
-    # Remove Arabic/Persian combining marks
-    text = "".join(
-        char
-        for char in text
-        if unicodedata.category(char) != "Mn"
-    )
-
-    # Remove punctuation and symbols
-    text = re.sub(
-        r"[^\w\s\u0600-\u06FF]",
-        " ",
-        text,
-        flags=re.UNICODE
-    )
-
-    # Normalize spaces
-    text = re.sub(
-        r"\s+",
-        " ",
-        text
-    )
-
-    return text.strip()
-
-
-def normalize_poem_for_match(text):
-
-    text = normalize_text(text)
-
-    if not text:
-        return ""
-
-    # For poem matching, ignore all whitespace differences.
-    text = re.sub(
-        r"\s+",
-        "",
-        text
-    )
-
-    return text
 
 
 # ==================================
@@ -370,14 +256,16 @@ def is_valid_interpretation(interpretation):
     if interpretation is None:
         return False
 
-    interpretation = normalize_text(
+    interpretation = str(
         interpretation
-    )
+    ).strip()
 
     if not interpretation:
         return False
 
-    lowered = interpretation.replace(
+    # فقط برای جلوگیری از نمایش متن‌های صریحاً
+    # نامعتبر/فاقد تعبیر استفاده می‌شود.
+    normalized = interpretation.replace(
         " ",
         ""
     )
@@ -392,7 +280,7 @@ def is_valid_interpretation(interpretation):
 
     for phrase in invalid_phrases:
 
-        if phrase in lowered:
+        if phrase in normalized:
             return False
 
     return True
@@ -443,84 +331,112 @@ def load_interpretations():
 
         return
 
-    total_records = 0
+    total_records = len(data)
     valid_records = 0
     skipped_records = 0
 
-    for item in data:
+    print(
+        f"[TABIR] Total records: {total_records}"
+    )
+
+    # ==========================================================
+    # مهم:
+    #
+    # Hafez_Tabir.json به صورت لیست مرتب شده است.
+    #
+    # رکورد اول  = غزل 1
+    # رکورد دوم  = غزل 2
+    # ...
+    # رکورد 265  = غزل 265
+    #
+    # بنابراین دیگر متن poem را با متن HafezFilebot
+    # مقایسه نمی‌کنیم.
+    # ==========================================================
+
+    for index, item in enumerate(
+        data,
+        start=1
+    ):
+
+        ghazal_number = str(index)
 
         if not isinstance(item, dict):
 
             skipped_records += 1
-            continue
 
-        poem = item.get(
-            "poem",
-            ""
-        )
+            print(
+                f"[TABIR] Skipped record #{ghazal_number}: "
+                f"invalid record structure"
+            )
+
+            continue
 
         interpretation = item.get(
             "interpretation",
             ""
         )
 
-        total_records += 1
-
-        poem_key = normalize_poem_for_match(
-            poem
-        )
-
-        interpretation = normalize_text(
+        interpretation = str(
             interpretation
-        )
-
-        if not poem_key:
-
-            skipped_records += 1
-            continue
+        ).strip()
 
         if not is_valid_interpretation(
             interpretation
         ):
 
             skipped_records += 1
+
+            print(
+                f"[TABIR] Skipped interpretation "
+                f"for ghazal #{ghazal_number}"
+            )
+
             continue
 
-        TABIR_MAP[poem_key] = interpretation
+        # ======================================================
+        # ذخیره مستقیم بر اساس شماره غزل
+        # ======================================================
+
+        TABIR_MAP[ghazal_number] = interpretation
 
         valid_records += 1
 
     print(
-        f"[TABIR] Total records: {total_records}"
+        f"[TABIR] Valid interpretations: "
+        f"{valid_records}"
     )
 
     print(
-        f"[TABIR] Valid interpretations: {valid_records}"
+        f"[TABIR] Skipped records: "
+        f"{skipped_records}"
     )
 
     print(
-        f"[TABIR] Skipped records: {skipped_records}"
-    )
-
-    print(
-        f"[TABIR] Map size: {len(TABIR_MAP)}"
+        f"[TABIR] Map size: "
+        f"{len(TABIR_MAP)}"
     )
 
 
 def get_interpretation(record):
 
-    poem = normalize_poem_for_match(
-        record.get(
-            "poem",
-            ""
-        )
+    # شماره واقعی غزل را از همان رکورد می‌گیریم.
+    number = get_ghazal_number(
+        record
     )
 
-    if not poem:
+    if not number:
         return None
 
+    number = str(
+        number
+    ).strip()
+
+    # ==========================================================
+    # تعبیر فقط بر اساس شماره غزل
+    # ==========================================================
+
     interpretation = TABIR_MAP.get(
-        poem
+        number
     )
 
     if is_valid_interpretation(
@@ -807,6 +723,8 @@ def get_ghazal_number(record):
         )
     )
 
+    # روش اصلی:
+    # https://ganjoor.net/hafez/ghazal/sh265/
     match = re.search(
         r"/sh(\d+)",
         source,
@@ -891,6 +809,10 @@ def format_fortune(record):
             ""
         )
     )
+
+    # ==========================================================
+    # تعبیر همین غزل بر اساس شماره غزل
+    # ==========================================================
 
     interpretation = get_interpretation(
         record
@@ -1512,6 +1434,32 @@ def process_fortune(
         record = random.choice(
             HAZALS
         )
+
+        number = get_ghazal_number(
+            record
+        )
+
+        print(
+            f"[FORTUNE] Selected ghazal #{number}"
+        )
+
+        interpretation = get_interpretation(
+            record
+        )
+
+        if interpretation:
+
+            print(
+                f"[TABIR] Found interpretation "
+                f"for ghazal #{number}"
+            )
+
+        else:
+
+            print(
+                f"[TABIR] No interpretation "
+                f"for ghazal #{number}"
+            )
 
         success = send_fortune(
             chat_id,
