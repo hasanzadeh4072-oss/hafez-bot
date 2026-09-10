@@ -28,10 +28,11 @@ API = f"https://api.splus.ir/bot{TOKEN}"
 WEBHOOK_URL = "https://hafez-bot.onrender.com/webhook"
 DATA_FILE = "HafezFilebot.json"
 TABIR_FILE = "Hafez_Tabir.json"
-CHANNEL_URL = "https://splus.ir/@LIFE_M23"
 
-POETRY_CARD_BOT_URL = "https://splus.ir/@PoetryCardBot"
-ANONYMOUS_BOT_URL = "https://splus.ir/@PayamNashenasBot"
+CHANNEL_URL = "https://splus.ir/life_m23"
+
+POETRY_CARD_BOT_URL = "http://splus.ir/PoetryCardBot"
+ANONYMOUS_BOT_URL = "http://splus.ir/PayamNashenasBot"
 
 MAX_MESSAGE_LENGTH = 4000
 
@@ -61,7 +62,7 @@ ABOUT_TEXT = """🌿 درباره شعرکده
 خوشحال می‌شویم پذیرای شما در کانال «شعرکده» باشیم. 🌱
 
 🔗 لینک کانال شعرکده:
-@LIFE_M23"""
+https://splus.ir/life_m23"""
 
 
 # ==================================
@@ -660,7 +661,8 @@ def send_message(
     data = {
         "chat_id": chat_id,
         "text": text,
-        "disable_web_page_preview": "true"
+        "disable_web_page_preview": "true",
+        "parse_mode": "HTML"
     }
 
     if reply_markup is not None:
@@ -1698,8 +1700,11 @@ def webhook():
             send_message(
                 chat_id,
                 (
-                    "🎨 ساختن کارت شعر\n\n"
-                    f"{POETRY_CARD_BOT_URL}"
+                    "🎨 <a href=\"http://splus.ir/PoetryCardBot\">کارت شعر</a>\n\n"
+                    "شعر مورد علاقه‌تان را به یک کارت شعر زیبا و اختصاصی تبدیل کنید. ✨\n\n"
+                    "برای ساخت کارت، وارد بات "
+                    "<a href=\"http://splus.ir/PoetryCardBot\">کارت شعر</a> شوید.\n\n"
+                    "🔗 <a href=\"http://splus.ir/PoetryCardBot\">http://splus.ir/PoetryCardBot</a>"
                 ),
                 reply_markup=MAIN_KEYBOARD
             )
@@ -1743,8 +1748,12 @@ def webhook():
             send_message(
                 chat_id,
                 (
-                    "💬 ارتباط با مدیر\n\n"
-                    f"{ANONYMOUS_BOT_URL}"
+                    "💬 <a href=\"http://splus.ir/PayamNashenasBot\">پیام ناشناس شعرکده</a>\n\n"
+                    "اگر پیشنهاد، انتقاد یا پیامی برای مدیر بات دارید، "
+                    "می‌توانید از طریق "
+                    "<a href=\"http://splus.ir/PayamNashenasBot\">پیام ناشناس شعرکده</a> "
+                    "با ما در ارتباط باشید.\n\n"
+                    "🔗 <a href=\"http://splus.ir/PayamNashenasBot\">http://splus.ir/PayamNashenasBot</a>"
                 ),
                 reply_markup=MAIN_KEYBOARD
             )
@@ -1767,8 +1776,9 @@ def webhook():
             send_message(
                 chat_id,
                 (
-                    "📣 کانال شعرکده\n\n"
-                    f"{CHANNEL_URL}"
+                    "📣 <a href=\"https://splus.ir/life_m23\">شعرکده</a>\n\n"
+                    "برای ورود مستقیم به کانال شعرکده:\n\n"
+                    "🔗 <a href=\"https://splus.ir/life_m23\">https://splus.ir/life_m23</a>"
                 ),
                 reply_markup=MAIN_KEYBOARD
             )
@@ -1871,4 +1881,4 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=port
-    )
+        )
