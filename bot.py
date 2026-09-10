@@ -41,6 +41,30 @@ REQUEST_TIMEOUT = (CONNECT_TIMEOUT, READ_TIMEOUT)
 
 
 # ==================================
+# About
+# ==================================
+
+ABOUT_TEXT = """🌿 درباره شعرکده
+
+از سال ۱۳۹۵ با کانال «شعرکده» در پیام‌رسان سروش پلاس همراه شما هستیم.
+
+در «شعرکده» بخش‌های متنوعی از جمله:
+📜 شعر
+📖 برگی از کتاب
+🎬 دیالوگ ماندگار
+💬 بگو مگو
+🪶 ضرب‌المثل
+🎵 موزیک‌گردی
+🇮🇷 ایران زیبا
+را با شما به اشتراک می‌گذاریم.
+
+خوشحال می‌شویم پذیرای شما در کانال «شعرکده» باشیم. 🌱
+
+🔗 لینک کانال شعرکده:
+@LIFE_M23"""
+
+
+# ==================================
 # Audio Cache
 # ==================================
 
@@ -103,7 +127,7 @@ def get_audio_resolve_lock(source_url):
 
         if lock is None:
             lock = threading.Lock()
-            _AUDIO_RESOLVE_LOCKS_GUARD[source_url] = lock
+            _AUDIO_RESOLVE_LOCKS[source_url] = lock
 
         return lock
 
@@ -209,99 +233,49 @@ def audio_url_cache_put(source_url, audio_url):
 
 
 # ==================================
-# Main Menu
+# Keyboards
 # ==================================
 
-MAIN_INLINE_KEYBOARD = {
-    "inline_keyboard": [
+MAIN_KEYBOARD = {
+    "keyboard": [
         [
             {
-                "text": "📜 فال حافظ",
-                "callback_data": "fortune"
+                "text": "📜 فال حافظ"
             }
         ],
         [
             {
-                "text": "🎨 ساختن کارت شعر",
-                "url": POETRY_CARD_BOT_URL
+                "text": "🎨 ساختن کارت شعر"
             },
             {
-                "text": "🌿 درباره ما",
-                "callback_data": "about"
+                "text": "🌿 درباره ما"
             }
         ],
         [
             {
-                "text": "💬 ارتباط با مدیر",
-                "url": ANONYMOUS_BOT_URL
+                "text": "💬 ارتباط با مدیر"
             },
             {
-                "text": "📣 کانال شعرکده",
-                "url": CHANNEL_URL
+                "text": "📣 کانال شعرکده"
             }
         ]
-    ]
+    ],
+    "resize_keyboard": True,
+    "one_time_keyboard": False
 }
 
 
-REPEAT_INLINE_KEYBOARD = {
-    "inline_keyboard": [
+REPEAT_KEYBOARD = {
+    "keyboard": [
         [
             {
-                "text": "🌿 یک فال دیگر",
-                "callback_data": "fortune"
-            }
-        ],
-        [
-            {
-                "text": "🏠 منوی اصلی",
-                "callback_data": "main_menu"
+                "text": "🌿 یک فال دیگر"
             }
         ]
-    ]
+    ],
+    "resize_keyboard": True,
+    "one_time_keyboard": False
 }
-
-
-ABOUT_INLINE_KEYBOARD = {
-    "inline_keyboard": [
-        [
-            {
-                "text": "📣 ورود به کانال شعرکده",
-                "url": CHANNEL_URL
-            }
-        ],
-        [
-            {
-                "text": "🏠 منوی اصلی",
-                "callback_data": "main_menu"
-            }
-        ]
-    ]
-}
-
-
-# ==================================
-# About Text
-# ==================================
-
-ABOUT_TEXT = """🌿 درباره شعرکده
-
-از سال ۱۳۹۵ با کانال «شعرکده» در پیام‌رسان سروش پلاس همراه شما هستیم.
-
-در «شعرکده» بخش‌های متنوعی از جمله:
-📜 شعر
-📖 برگی از کتاب
-🎬 دیالوگ ماندگار
-💬 بگو مگو
-🪶 ضرب‌المثل
-🎵 موزیک‌گردی
-🇮🇷 ایران زیبا
-را با شما به اشتراک می‌گذاریم.
-
-خوشحال می‌شویم پذیرای شما در کانال «شعرکده» باشیم. 🌱
-
-🔗 لینک کانال شعرکده:
-@LIFE_M23"""
 
 
 # ==================================
@@ -702,21 +676,6 @@ def send_message(
     )
 
 
-def answer_callback_query(
-    callback_query_id
-):
-
-    if not callback_query_id:
-        return None
-
-    return splus_request(
-        "answerCallbackQuery",
-        data={
-            "callback_query_id": callback_query_id
-        }
-    )
-
-
 # ==================================
 # Message Helpers
 # ==================================
@@ -919,7 +878,7 @@ def send_fortune(
         )
 
         markup = (
-            REPEAT_INLINE_KEYBOARD
+            REPEAT_KEYBOARD
             if is_last
             else None
         )
@@ -1457,29 +1416,6 @@ def clear_control_message(
 
 
 # ==================================
-# Main Menu
-# ==================================
-
-def send_main_menu(chat_id):
-
-    return send_message(
-        chat_id,
-        "🌿 به منوی اصلی خوش آمدید.\n\n"
-        "لطفاً یکی از گزینه‌های زیر را انتخاب کنید:",
-        reply_markup=MAIN_INLINE_KEYBOARD
-    )
-
-
-def send_about(chat_id):
-
-    return send_message(
-        chat_id,
-        ABOUT_TEXT,
-        reply_markup=ABOUT_INLINE_KEYBOARD
-    )
-
-
-# ==================================
 # Fortune Processing
 # ==================================
 
@@ -1495,7 +1431,7 @@ def process_fortune(
             send_message(
                 chat_id,
                 "متأسفانه مجموعه غزل‌های حافظ در دسترس نیست.",
-                reply_markup=MAIN_INLINE_KEYBOARD
+                reply_markup=MAIN_KEYBOARD
             )
 
             return
@@ -1537,6 +1473,17 @@ def process_fortune(
 
         if success:
 
+            old_control = get_control_message(
+                chat_id
+            )
+
+            if old_control:
+
+                delete_message(
+                    chat_id,
+                    old_control
+                )
+
             if fortune_message_id:
 
                 delete_message(
@@ -1562,113 +1509,6 @@ def process_fortune(
 
 
 # ==================================
-# Callback Query Processing
-# ==================================
-
-def process_callback_query(
-    callback_query
-):
-
-    if not isinstance(
-        callback_query,
-        dict
-    ):
-        return
-
-    callback_id = callback_query.get(
-        "id"
-    )
-
-    data = str(
-        callback_query.get(
-            "data",
-            ""
-        )
-    ).strip()
-
-    message = callback_query.get(
-        "message"
-    ) or {}
-
-    chat = message.get(
-        "chat"
-    ) or {}
-
-    chat_id = chat.get(
-        "id"
-    )
-
-    message_id = message.get(
-        "message_id"
-    )
-
-    if chat_id is None:
-        return
-
-    # پاسخ سریع به callback
-    answer_callback_query(
-        callback_id
-    )
-
-    # ------------------------------
-    # Main Menu
-    # ------------------------------
-
-    if data == "main_menu":
-
-        if message_id:
-
-            delete_message(
-                chat_id,
-                message_id
-            )
-
-        send_main_menu(
-            chat_id
-        )
-
-        return
-
-    # ------------------------------
-    # About
-    # ------------------------------
-
-    if data == "about":
-
-        if message_id:
-
-            delete_message(
-                chat_id,
-                message_id
-            )
-
-        send_about(
-            chat_id
-        )
-
-        return
-
-    # ------------------------------
-    # Fortune
-    # ------------------------------
-
-    if data == "fortune":
-
-        thread = threading.Thread(
-            target=process_fortune,
-            args=(
-                chat_id,
-                message_id
-            ),
-            daemon=True
-        )
-
-        thread.start()
-
-        return
-
-
-# ==================================
 # Webhook
 # ==================================
 
@@ -1684,26 +1524,6 @@ def webhook():
             silent=True
         ) or {}
 
-        # ==================================
-        # Callback Query
-        # ==================================
-
-        callback_query = update.get(
-            "callback_query"
-        )
-
-        if callback_query:
-
-            process_callback_query(
-                callback_query
-            )
-
-            return "ok"
-
-        # ==================================
-        # Message
-        # ==================================
-
         message = update.get(
             "message"
         ) or update.get(
@@ -1711,7 +1531,6 @@ def webhook():
         )
 
         if not message:
-
             return "ok"
 
         chat = message.get(
@@ -1723,7 +1542,6 @@ def webhook():
         )
 
         if chat_id is None:
-
             return "ok"
 
         text = str(
@@ -1743,8 +1561,18 @@ def webhook():
 
         if text == "/start":
 
-            result = send_main_menu(
-                chat_id
+            welcome_text = (
+                "🌿 به فال حافظ خوش آمدید.\n\n"
+                "برای گرفتن فال، روی دکمه "
+                "«📜 فال حافظ» بزنید.\n\n"
+                "هر بار یک غزل تصادفی از "
+                "غزلیات حافظ برای شما انتخاب می‌شود."
+            )
+
+            result = send_message(
+                chat_id,
+                welcome_text,
+                reply_markup=MAIN_KEYBOARD
             )
 
             if result:
@@ -1786,7 +1614,57 @@ def webhook():
             return "ok"
 
         # ------------------------------
-        # Legacy text button support
+        # Repeat
+        # ------------------------------
+
+        if text == "🌿 یک فال دیگر":
+
+            if message_id:
+
+                delete_message(
+                    chat_id,
+                    message_id
+                )
+
+            result = send_message(
+                chat_id,
+                "🌿 دوباره نیت کنید و روی «📜 فال حافظ» بزنید.",
+                reply_markup=MAIN_KEYBOARD
+            )
+
+            if result:
+
+                sent_message_id = None
+
+                if isinstance(
+                    result,
+                    dict
+                ):
+
+                    result_data = result.get(
+                        "result"
+                    )
+
+                    if isinstance(
+                        result_data,
+                        dict
+                    ):
+
+                        sent_message_id = result_data.get(
+                            "message_id"
+                        )
+
+                if sent_message_id:
+
+                    set_control_message(
+                        chat_id,
+                        sent_message_id
+                    )
+
+            return "ok"
+
+        # ------------------------------
+        # Fortune
         # ------------------------------
 
         if text == "📜 فال حافظ":
@@ -1804,18 +1682,96 @@ def webhook():
 
             return "ok"
 
-        if text == "🌿 یک فال دیگر":
+        # ------------------------------
+        # Poetry Card Bot
+        # ------------------------------
 
-            thread = threading.Thread(
-                target=process_fortune,
-                args=(
+        if text == "🎨 ساختن کارت شعر":
+
+            if message_id:
+
+                delete_message(
                     chat_id,
                     message_id
+                )
+
+            send_message(
+                chat_id,
+                (
+                    "🎨 ساختن کارت شعر\n\n"
+                    f"{POETRY_CARD_BOT_URL}"
                 ),
-                daemon=True
+                reply_markup=MAIN_KEYBOARD
             )
 
-            thread.start()
+            return "ok"
+
+        # ------------------------------
+        # About
+        # ------------------------------
+
+        if text == "🌿 درباره ما":
+
+            if message_id:
+
+                delete_message(
+                    chat_id,
+                    message_id
+                )
+
+            send_message(
+                chat_id,
+                ABOUT_TEXT,
+                reply_markup=MAIN_KEYBOARD
+            )
+
+            return "ok"
+
+        # ------------------------------
+        # Contact Admin
+        # ------------------------------
+
+        if text == "💬 ارتباط با مدیر":
+
+            if message_id:
+
+                delete_message(
+                    chat_id,
+                    message_id
+                )
+
+            send_message(
+                chat_id,
+                (
+                    "💬 ارتباط با مدیر\n\n"
+                    f"{ANONYMOUS_BOT_URL}"
+                ),
+                reply_markup=MAIN_KEYBOARD
+            )
+
+            return "ok"
+
+        # ------------------------------
+        # Poetry Channel
+        # ------------------------------
+
+        if text == "📣 کانال شعرکده":
+
+            if message_id:
+
+                delete_message(
+                    chat_id,
+                    message_id
+                )
+
+            send_message(
+                chat_id,
+                (
+                    "📣 کانال شعرکده\n\n"
+                    f"{CHANNEL_URL}"
+                ),
+                reply_markup=MAIN_KEYBOARD
+            )
 
             return "ok"
 
@@ -1915,4 +1871,4 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=port
-        )
+    )
