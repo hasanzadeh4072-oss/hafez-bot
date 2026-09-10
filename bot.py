@@ -265,6 +265,35 @@ MAIN_KEYBOARD = {
 }
 
 
+FORTUNE_KEYBOARD = {
+    "keyboard": [
+        [
+            {
+                "text": "🌿 یک فال دیگر"
+            }
+        ],
+        [
+            {
+                "text": "🎨 ساختن کارت شعر"
+            },
+            {
+                "text": "🌿 درباره ما"
+            }
+        ],
+        [
+            {
+                "text": "💬 ارتباط با مدیر"
+            },
+            {
+                "text": "📣 کانال شعرکده"
+            }
+        ]
+    ],
+    "resize_keyboard": True,
+    "one_time_keyboard": False
+}
+
+
 # ==================================
 # Data
 # ==================================
@@ -862,26 +891,17 @@ def send_fortune(
         result = send_message(
             chat_id,
             chunk,
-            reply_markup=MAIN_KEYBOARD
+            reply_markup=FORTUNE_KEYBOARD
         )
 
         results.append(
             result
         )
 
-    if not all(
+    return all(
         result is not None
         for result in results
-    ):
-        return False
-
-    result = send_message(
-        chat_id,
-        "🌿 نیت کنید و روی «📜 فال حافظ» بزنید.",
-        reply_markup=MAIN_KEYBOARD
     )
-
-    return result is not None
 
 
 # ==================================
@@ -1554,9 +1574,37 @@ def webhook():
                 "غزلیات حافظ برای شما انتخاب می‌شود."
             )
 
-            result = send_message(
+            send_message(
                 chat_id,
                 welcome_text,
+                reply_markup=MAIN_KEYBOARD
+            )
+
+            if message_id:
+
+                delete_message(
+                    chat_id,
+                    message_id
+                )
+
+            return "ok"
+
+        # ------------------------------
+        # Repeat Fortune
+        # ------------------------------
+
+        if text == "🌿 یک فال دیگر":
+
+            if message_id:
+
+                delete_message(
+                    chat_id,
+                    message_id
+                )
+
+            result = send_message(
+                chat_id,
+                "🌿 نیت کنید و روی «📜 فال حافظ» بزنید.",
                 reply_markup=MAIN_KEYBOARD
             )
 
@@ -1588,13 +1636,6 @@ def webhook():
                         chat_id,
                         sent_message_id
                     )
-
-            if message_id:
-
-                delete_message(
-                    chat_id,
-                    message_id
-                )
 
             return "ok"
 
@@ -1815,7 +1856,4 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=port
-    )
-
-
-
+        )
