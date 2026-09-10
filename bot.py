@@ -879,7 +879,7 @@ def send_fortune(
         )
 
         markup = (
-            REPEAT_KEYBOARD
+            MAIN_KEYBOARD
             if is_last
             else None
         )
