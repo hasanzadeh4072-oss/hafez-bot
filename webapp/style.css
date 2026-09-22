@@ -62,9 +62,10 @@ h1 {
 .subtitle {
     margin: 0 auto 30px;
     color: #6b7280;
-    line-height: 1.9;
-    font-size: 15px;
-    max-width: 400px;
+    line-height: 2;
+    font-size: 17px;
+    font-weight: 600;
+    max-width: 500px;
 }
 
 .primary-btn {
@@ -138,8 +139,22 @@ h1 {
 }
 
 #audioPlayer {
+    display: block;
     width: 100%;
     margin-top: 22px;
+    position: relative;
+    z-index: 10;
+    pointer-events: auto;
+}
+
+.repeat-text {
+    margin: 20px auto 0;
+    max-width: 500px;
+    text-align: center;
+    color: #6b7280;
+    line-height: 2;
+    font-size: 15px;
+    font-weight: 600;
 }
 
 #newFortuneButton {
@@ -157,5 +172,13 @@ h1 {
 
     .fortune-card {
         padding: 20px 14px;
+    }
+
+    .subtitle {
+        font-size: 16px;
+    }
+
+    .repeat-text {
+        font-size: 14px;
     }
 }
