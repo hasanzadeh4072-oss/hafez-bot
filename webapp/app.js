@@ -1,6 +1,7 @@
 const DATA_FILE = "../HafezFilebot.json";
 const TABIR_FILE = "../Hafez_Tabir.json";
 
+
 const fortuneButton =
     document.getElementById("fortuneButton");
 
@@ -36,12 +37,16 @@ const audioStatus =
 
 
 let hazals = [];
+
 let tabirMap = {};
-let usedGhzalNumbers = new Set();
+
+let usedGhzalNumbers =
+    new Set();
 
 let dataReady = false;
 
 let currentAudio = null;
+
 let currentAudioUrl = "";
 
 
@@ -80,7 +85,6 @@ function normalizeDigits(value) {
 
 /* =========================================================
    استخراج شماره غزل
-   مطابق منطق بات قبلی
 ========================================================= */
 
 function getGhazalNumber(record) {
@@ -161,7 +165,7 @@ function getGhazalNumber(record) {
 
 
 /* =========================================================
-   تبدیل ساختار HafezFilebot.json به آرایه
+   استخراج غزل‌ها از HafezFilebot.json
 ========================================================= */
 
 function normalizeHafezData(data) {
@@ -205,7 +209,7 @@ function normalizeHafezData(data) {
 
 
             /*
-               رکورد با کلید شناسه
+               حالت دارای شناسه
             */
 
             Object.entries(item).forEach(
@@ -351,9 +355,9 @@ function loadInterpretations(data) {
 
 
         /*
+           اگر شماره غزل داخل رکورد تعبیر نبود،
            همان منطق بات قبلی:
-           اگر شماره نداشت،
-           شماره ترتیب رکورد استفاده می‌شود.
+           شماره ترتیب رکورد
         */
 
         if (!ghazalNumber) {
@@ -389,7 +393,7 @@ function loadInterpretations(data) {
 
 
 /* =========================================================
-   دریافت تعبیر
+   دریافت تعبیر بر اساس شماره غزل
 ========================================================= */
 
 function getInterpretation(record) {
@@ -461,7 +465,7 @@ function showFortuneScreen() {
 
 
 /* =========================================================
-   انتخاب غزل تصادفی بدون تکرار
+   انتخاب تصادفی غزل بدون تکرار
 ========================================================= */
 
 function getRandomHazal() {
@@ -540,7 +544,8 @@ function setupAudio(audioUrl) {
     }
 
 
-    currentAudioUrl = audioUrl || "";
+    currentAudioUrl =
+        audioUrl || "";
 
 
     audioButton.classList.remove(
@@ -556,7 +561,7 @@ function setupAudio(audioUrl) {
 
 
     /*
-       اگر صوت وجود نداشته باشد
+       اگر صوت وجود ندارد
     */
 
     if (!currentAudioUrl) {
@@ -573,12 +578,17 @@ function setupAudio(audioUrl) {
 
 
     /*
-       ساخت Audio فقط بعد از درخواست کاربر
+       Audio ساخته می‌شود،
+       اما پخش فقط با کلیک کاربر انجام می‌شود.
     */
 
-    currentAudio = new Audio();
+    currentAudio =
+        new Audio();
 
-    currentAudio.preload = "none";
+
+    currentAudio.preload =
+        "none";
+
 
     currentAudio.src =
         currentAudioUrl;
@@ -671,7 +681,7 @@ async function toggleAudio() {
 
     /*
        اگر در حال پخش است،
-       متوقفش کن.
+       متوقف شود.
     */
 
     if (
@@ -686,87 +696,15 @@ async function toggleAudio() {
 
 
     /*
-       اگر Audio قبلی وجود نداشت،
-       دوباره ایجاد کن.
+       اگر Audio وجود نداشت
     */
 
     if (!currentAudio) {
 
-        currentAudio =
-            new Audio(
-                currentAudioUrl
-            );
-
-        currentAudio.preload =
-            "none";
-
-
-        currentAudio.addEventListener(
-            "play",
-            () => {
-
-                audioButton.classList.add(
-                    "playing"
-                );
-
-                audioButton.textContent =
-                    "⏸️ توقف صوت";
-
-                audioStatus.textContent =
-                    "در حال پخش...";
-
-            }
+        setupAudio(
+            currentAudioUrl
         );
 
-
-        currentAudio.addEventListener(
-            "pause",
-            () => {
-
-                audioButton.classList.remove(
-                    "playing"
-                );
-
-                audioButton.textContent =
-                    "▶️ پخش صوت غزل";
-
-            }
-        );
-
-
-        currentAudio.addEventListener(
-            "ended",
-            () => {
-
-                audioButton.classList.remove(
-                    "playing"
-                );
-
-                audioButton.textContent =
-                    "▶️ پخش دوباره صوت";
-
-                audioStatus.textContent = "";
-
-            }
-        );
-
-
-        currentAudio.addEventListener(
-            "error",
-            () => {
-
-                audioButton.classList.remove(
-                    "playing"
-                );
-
-                audioButton.textContent =
-                    "▶️ پخش صوت غزل";
-
-                audioStatus.textContent =
-                    "پخش صوت امکان‌پذیر نیست.";
-
-            }
-        );
     }
 
 
@@ -805,14 +743,21 @@ function displayFortune(record) {
         poemTitle.textContent =
             "خطا";
 
+
         poemText.textContent =
             "غزلی برای نمایش پیدا نشد.";
 
-        poemSource.textContent = "";
 
-        interpretation.textContent = "";
+        poemSource.textContent =
+            "";
+
+
+        interpretation.textContent =
+            "";
+
 
         setupAudio("");
+
 
         return;
     }
@@ -875,6 +820,7 @@ function getFortune() {
 
     displayFortune(record);
 
+
     showFortuneScreen();
 }
 
@@ -887,8 +833,11 @@ async function loadData() {
 
     try {
 
-        fortuneButton.disabled = true;
-        newFortuneButton.disabled = true;
+        fortuneButton.disabled =
+            true;
+
+        newFortuneButton.disabled =
+            true;
 
 
         const [
@@ -997,7 +946,8 @@ async function loadData() {
             "اطلاعات فال حافظ در دسترس نیست.";
 
 
-        poemSource.textContent = "";
+        poemSource.textContent =
+            "";
 
 
         interpretation.textContent =
