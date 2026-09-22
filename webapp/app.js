@@ -1,16 +1,13 @@
 const homeScreen = document.getElementById("homeScreen");
 const fortuneScreen = document.getElementById("fortuneScreen");
 
-
 const fortuneButton = document.getElementById("fortuneButton");
 const newFortuneButton = document.getElementById("newFortuneButton");
-
 
 const poemTitle = document.getElementById("poemTitle");
 const poemText = document.getElementById("poemText");
 const poemSource = document.getElementById("poemSource");
 const interpretation = document.getElementById("interpretation");
-
 
 const audioPlayer = document.getElementById("audioPlayer");
 
@@ -19,10 +16,8 @@ const audioPlayer = document.getElementById("audioPlayer");
 Data
 ================================== */
 
-
 let hazals = [];
 let interpretations = [];
-
 
 let lastFortune = null;
 
@@ -31,197 +26,167 @@ let lastFortune = null;
 Load Data
 ================================== */
 
-
 async function loadData() {
 
+    const [
+        hafezResponse,
+        tabirResponse
+    ] = await Promise.all([
 
-const [
-    hafezResponse,
-    tabirResponse
-] = await Promise.all([
+        fetch("../HafezFilebot.json"),
 
-    fetch("../HafezFilebot.json"),
-
-    fetch("../Hafez_Tabir.json")
-]);
+        fetch("../Hafez_Tabir.json")
+    ]);
 
 
-if (!hafezResponse.ok) {
+    if (!hafezResponse.ok) {
 
-    throw new Error(
-        "خطا در دریافت HafezFilebot.json"
+        throw new Error(
+            "خطا در دریافت HafezFilebot.json"
+        );
+    }
+
+
+    if (!tabirResponse.ok) {
+
+        throw new Error(
+            "خطا در دریافت Hafez_Tabir.json"
+        );
+    }
+
+
+    const hafezData =
+        await hafezResponse.json();
+
+    const tabirData =
+        await tabirResponse.json();
+
+
+    hazals =
+        normalizeHafezData(
+            hafezData
+        );
+
+
+    interpretations =
+        Array.isArray(tabirData)
+            ? tabirData
+            : [];
+
+
+    if (hazals.length === 0) {
+
+        throw new Error(
+            "هیچ غزلی در HafezFilebot.json پیدا نشد."
+        );
+    }
+
+
+    console.log(
+        `[DATA] Loaded ${hazals.length} ghazals.`
     );
-}
 
 
-if (!tabirResponse.ok) {
-
-    throw new Error(
-        "خطا در دریافت Hafez_Tabir.json"
+    console.log(
+        `[TABIR] Loaded ${interpretations.length} interpretations.`
     );
-}
-
-
-const hafezData =
-    await hafezResponse.json();
-
-const tabirData =
-    await tabirResponse.json();
-
-
-hazals =
-    normalizeHafezData(
-        hafezData
-    );
-
-
-interpretations =
-    Array.isArray(tabirData)
-        ? tabirData
-        : [];
-
-
-if (hazals.length === 0) {
-
-    throw new Error(
-        "هیچ غزلی در HafezFilebot.json پیدا نشد."
-    );
-}
-
-
-console.log(
-    `[DATA] Loaded ${hazals.length} ghazals.`
-);
-
-
-console.log(
-    `[TABIR] Loaded ${interpretations.length} interpretations.`
-);
-
-
-
 }
 
 
 /* ==================================
 Normalize Hafez Data
-دقیقاً متناسب با ساختار bot.py
 ================================== */
-
 
 function normalizeHafezData(data) {
 
-
-const result = [];
-
-
-/*
- * ساختار HafezFilebot.json:
- *
- * [
- *   {
- *      "fxr49o": {
- *          "Audio": "...",
- *          "Author": "حافظ",
- *          "Book": "غزلیات حافظ",
- *          "Poem": "...",
- *          "Source": "...",
- *          "Title": "..."
- *      }
- *   }
- * ]
- */
+    const result = [];
 
 
-if (!Array.isArray(data)) {
+    if (!Array.isArray(data)) {
 
-    return result;
-}
-
-
-for (const item of data) {
-
-    if (
-        !item ||
-        typeof item !== "object"
-    ) {
-
-        continue;
+        return result;
     }
 
 
-    for (
-        const [recordId, record]
-        of Object.entries(item)
-    ) {
+    for (const item of data) {
 
         if (
-            !record ||
-            typeof record !== "object"
+            !item ||
+            typeof item !== "object"
         ) {
 
             continue;
         }
 
 
-        const poem =
-            String(
-                record.Poem ?? ""
-            ).trim();
+        for (
+            const [recordId, record]
+            of Object.entries(item)
+        ) {
+
+            if (
+                !record ||
+                typeof record !== "object"
+            ) {
+
+                continue;
+            }
 
 
-        if (!poem) {
+            const poem =
+                String(
+                    record.Poem ?? ""
+                ).trim();
 
-            continue;
+
+            if (!poem) {
+
+                continue;
+            }
+
+
+            result.push({
+
+                record_id:
+                    String(recordId),
+
+                author:
+                    String(
+                        record.Author ??
+                        "حافظ"
+                    ).trim() || "حافظ",
+
+                book:
+                    String(
+                        record.Book ??
+                        "غزلیات حافظ"
+                    ).trim() || "غزلیات حافظ",
+
+                poem,
+
+                source:
+                    String(
+                        record.Source ??
+                        ""
+                    ).trim(),
+
+                title:
+                    String(
+                        record.Title ??
+                        ""
+                    ).trim(),
+
+                audio:
+                    String(
+                        record.Audio ??
+                        ""
+                    ).trim()
+            });
         }
-
-
-        result.push({
-
-            record_id:
-                String(recordId),
-
-            author:
-                String(
-                    record.Author ??
-                    "حافظ"
-                ).trim() || "حافظ",
-
-            book:
-                String(
-                    record.Book ??
-                    "غزلیات حافظ"
-                ).trim() || "غزلیات حافظ",
-
-            poem,
-
-            source:
-                String(
-                    record.Source ??
-                    ""
-                ).trim(),
-
-            title:
-                String(
-                    record.Title ??
-                    ""
-                ).trim(),
-
-            audio:
-                String(
-                    record.Audio ??
-                    ""
-                ).trim()
-
-        });
     }
-}
 
 
-return result;
-
-
-
+    return result;
 }
 
 
@@ -229,27 +194,22 @@ return result;
 Random
 ================================== */
 
-
 function randomItem(array) {
 
+    if (
+        !Array.isArray(array) ||
+        array.length === 0
+    ) {
 
-if (
-    !Array.isArray(array) ||
-    array.length === 0
-) {
-
-    return null;
-}
-
-
-return array[
-    Math.floor(
-        Math.random() * array.length
-    )
-];
+        return null;
+    }
 
 
-
+    return array[
+        Math.floor(
+            Math.random() * array.length
+        )
+    ];
 }
 
 
@@ -258,748 +218,351 @@ Ghazal Number
 همان منطق bot.py
 ================================== */
 
-
 function getGhazalNumber(record) {
 
+    if (!record) {
 
-if (!record) {
-
-    return null;
-}
-
-
-const source =
-    String(
-        record.source ?? ""
-    );
+        return null;
+    }
 
 
-/*
- * اول Source
- * مثال:
- * https://ganjoor.net/hafez/ghazal/sh63/
- */
-
-const sourceMatch =
-    source.match(
-        /\/sh(\d+)/i
-    );
+    const source =
+        String(
+            record.source ?? ""
+        );
 
 
-if (sourceMatch) {
-
-    return sourceMatch[1];
-}
-
-
-/*
- * سپس Title
- */
-
-const title =
-    String(
-        record.title ?? ""
-    );
+    const sourceMatch =
+        source.match(
+            /\/sh(\d+)/i
+        );
 
 
-const titleMatch =
-    title.match(
-        /\d+/
-    );
+    if (sourceMatch) {
+
+        return sourceMatch[1];
+    }
 
 
-if (titleMatch) {
-
-    return titleMatch[0];
-}
-
-
-/*
- * سپس record_id
- */
-
-const recordId =
-    String(
-        record.record_id ?? ""
-    );
+    const title =
+        String(
+            record.title ?? ""
+        );
 
 
-const idMatch =
-    recordId.match(
-        /\d+/
-    );
+    const titleMatch =
+        title.match(
+            /\d+/
+        );
 
 
-if (idMatch) {
+    if (titleMatch) {
 
-    return idMatch[0];
-}
-
-
-return recordId || null;
+        return titleMatch[0];
+    }
 
 
+    const recordId =
+        String(
+            record.record_id ?? ""
+        );
 
+
+    const idMatch =
+        recordId.match(
+            /\d+/
+        );
+
+
+    if (idMatch) {
+
+        return idMatch[0];
+    }
+
+
+    return recordId || null;
 }
 
 
 /* ==================================
 Interpretation Validation
-همان منطق bot.py
 ================================== */
 
-
 function isValidInterpretation(
-interpretation
-) {
-
-
-if (
-    interpretation === null ||
-    interpretation === undefined
-) {
-
-    return false;
-}
-
-
-const text =
-    String(
-        interpretation
-    ).trim();
-
-
-if (!text) {
-
-    return false;
-}
-
-
-const normalized =
-    text.replace(
-        /\s/g,
-        ""
-    );
-
-
-const invalidPhrases = [
-
-    "برایاینغزل هنوزتعبیریثبتنشده",
-
-    "برایاینغزل هنوزتعبیری",
-
-    "تعبیریثبتنشده",
-
-    "تعبیرثبتنشده",
-
-    "هنوزتعبیریثبتنشده"
-
-];
-
-
-for (
-    const phrase
-    of invalidPhrases
+    interpretation
 ) {
 
     if (
-        normalized.includes(
-            phrase
-        )
+        interpretation === null ||
+        interpretation === undefined
     ) {
 
         return false;
     }
-}
 
 
-return true;
+    const text =
+        String(
+            interpretation
+        ).trim();
 
 
+    if (!text) {
 
-}
-
-
-/* ==================================
-Load Interpretation
-همان منطق load_interpretations
-در bot.py
-================================== */
-
-
-function getInterpretation(
-record
-) {
-
-
-const number =
-    getGhazalNumber(
-        record
-    );
-
-
-if (!number) {
-
-    return null;
-}
-
-
-/*
- * در bot.py:
- *
- * اگر رکورد شماره نداشته باشد،
- * شماره همان index رکورد است.
- *
- * بنابراین رکورد شماره 1
- * با اولین رکورد Hafez_Tabir
- * مرتبط است.
- */
-
-
-const index =
-    Number(number) - 1;
-
-
-if (
-    Number.isInteger(index) &&
-    index >= 0 &&
-    index < interpretations.length
-) {
-
-    const item =
-        interpretations[index];
-
-
-    if (
-        item &&
-        typeof item === "object"
-    ) {
-
-        const interpretation =
-            String(
-                item.interpretation ??
-                ""
-            ).trim();
-
-
-        if (
-            isValidInterpretation(
-                interpretation
-            )
-        ) {
-
-            return interpretation;
-        }
-    }
-}
-
-
-/*
- * اگر خود فایل تعبیر
- * شماره غزل داشته باشد،
- * آن شماره نیز بررسی می‌شود.
- */
-
-for (
-    const item
-    of interpretations
-) {
-
-    if (
-        !item ||
-        typeof item !== "object"
-    ) {
-
-        continue;
+        return false;
     }
 
 
-    const possibleFields = [
-
-        "ghazal_number",
-
-        "GhazalNumber",
-
-        "ghazal",
-
-        "number",
-
-        "Number",
-
-        "id",
-
-        "ID"
-
-    ];
-
-
-    let itemNumber = null;
-
-
-    for (
-        const field
-        of possibleFields
-    ) {
-
-        const value =
-            item[field];
-
-
-        if (
-            value !== undefined &&
-            value !== null
-        ) {
-
-            const match =
-                String(value).match(
-                    /\d+/
-                );
-
-
-            if (match) {
-
-                itemNumber =
-                    match[0];
-
-                break;
-            }
-        }
-    }
-
-
-    if (
-        itemNumber ===
-        String(number)
-    ) {
-
-        const interpretation =
-            String(
-                item.interpretation ??
-                ""
-            ).trim();
-
-
-        if (
-            isValidInterpretation(
-                interpretation
-            )
-        ) {
-
-            return interpretation;
-        }
-    }
-}
-
-
-return null;
-
-
-
-}
-
-
-/* ==================================
-Clean Poem
-همان منطق bot.py
-================================== */
-
-
-function cleanPoem(poem) {
-
-
-if (!poem) {
-
-    return "";
-}
-
-
-let text =
-    String(poem);
-
-
-text =
-    text.replace(
-        /\r\n/g,
-        "\n"
-    );
-
-
-text =
-    text.replace(
-        /\r/g,
-        "\n"
-    );
-
-
-text =
-    text.replace(
-        /\n{3,}/g,
-        "\n\n"
-    );
-
-
-return text.trim();
-
-
-
-}
-
-
-/* ==================================
-Audio
-ابتدا Audio خود HafezFilebot
-================================== */
-
-
-function getDirectAudio(record) {
-
-
-if (!record) {
-
-    return "";
-}
-
-
-return String(
-    record.audio ?? ""
-).trim();
-
-
-
-}
-
-
-/* ==================================
-Check Audio
-================================== */
-
-
-async function checkAudioUrl(
-audioUrl
-) {
-
-
-if (!audioUrl) {
-
-    return false;
-}
-
-
-try {
-
-    const response =
-        await fetch(
-            audioUrl,
-            {
-                method: "HEAD",
-                mode: "cors"
-            }
+    const normalized =
+        text.replace(
+            /\s/g,
+            ""
         );
 
 
-    return response.ok;
+    const invalidPhrases = [
 
-} catch (error) {
+        "برایاینغزل هنوزتعبیریثبتنشده",
 
-    /*
-     * بعضی سرورهای صوتی HEAD/CORS
-     * را محدود می‌کنند.
-     *
-     * خود URL را همچنان قابل استفاده
-     * در audio player در نظر می‌گیریم.
-     */
+        "برایاینغزل هنوزتعبیری",
+
+        "تعبیریثبتنشده",
+
+        "تعبیرثبتنشده",
+
+        "هنوزتعبیریثبتنشده"
+    ];
+
+
+    for (
+        const phrase
+        of invalidPhrases
+    ) {
+
+        if (
+            normalized.includes(
+                phrase
+            )
+        ) {
+
+            return false;
+        }
+    }
+
 
     return true;
 }
 
 
-
-}
-
-
 /* ==================================
-Extract Audio URLs
-همان منطق bot.py
+Load Interpretation
 ================================== */
 
-
-function extractAudioUrls(
-html,
-baseUrl
+function getInterpretation(
+    record
 ) {
 
-
-const candidates = [];
-
-
-const absoluteRegex =
-    /https?:\/\/[^"'>\s]+?\.(?:ogg|mp3)(?:\?[^"'>\s]*)?/gi;
-
-
-const absoluteUrls =
-    html.match(
-        absoluteRegex
-    ) || [];
-
-
-for (
-    let url
-    of absoluteUrls
-) {
-
-    url =
-        url.replace(
-            /&amp;/g,
-            "&"
+    const number =
+        getGhazalNumber(
+            record
         );
 
 
-    candidates.push(
-        url
-    );
-}
+    if (!number) {
 
-
-const relativeRegex =
-    /["']([^"']+\.(?:ogg|mp3)(?:\?[^"]*)?)["']/gi;
-
-
-let match;
-
-
-while (
-    (match =
-        relativeRegex.exec(
-            html
-        )) !== null
-) {
-
-    try {
-
-        candidates.push(
-            new URL(
-                match[1],
-                baseUrl
-            ).href
-        );
-
-    } catch (error) {
-
-        // نادیده گرفته می‌شود.
+        return null;
     }
-}
 
 
-const unique = [];
+    const index =
+        Number(number) - 1;
 
 
-const seen =
-    new Set();
+    if (
+        Number.isInteger(index) &&
+        index >= 0 &&
+        index < interpretations.length
+    ) {
+
+        const item =
+            interpretations[index];
 
 
-for (
-    const url
-    of candidates
-) {
+        if (
+            item &&
+            typeof item === "object"
+        ) {
 
-    if (!seen.has(url)) {
-
-        seen.add(url);
-
-        unique.push(url);
-    }
-}
+            const interpretation =
+                String(
+                    item.interpretation ??
+                    ""
+                ).trim();
 
 
-const ganjoor =
-    unique.filter(
-        url =>
-            url
-                .toLowerCase()
-                .includes(
-                    "i.ganjoor.net"
+            if (
+                isValidInterpretation(
+                    interpretation
                 )
-    );
+            ) {
+
+                return interpretation;
+            }
+        }
+    }
 
 
-if (
-    ganjoor.length > 0
-) {
+    for (
+        const item
+        of interpretations
+    ) {
 
-    return ganjoor;
-}
+        if (
+            !item ||
+            typeof item !== "object"
+        ) {
 
-
-return unique;
-
-
-
-}
-
-
-/* ==================================
-Resolve Audio From Source
-همان منطق bot.py
-================================== */
+            continue;
+        }
 
 
-async function resolveAudioFromSource(
-sourceUrl
-) {
+        const possibleFields = [
+
+            "ghazal_number",
+
+            "GhazalNumber",
+
+            "ghazal",
+
+            "number",
+
+            "Number",
+
+            "id",
+
+            "ID"
+        ];
 
 
-if (!sourceUrl) {
+        let itemNumber = null;
+
+
+        for (
+            const field
+            of possibleFields
+        ) {
+
+            const value =
+                item[field];
+
+
+            if (
+                value !== undefined &&
+                value !== null
+            ) {
+
+                const match =
+                    String(value).match(
+                        /\d+/
+                    );
+
+
+                if (match) {
+
+                    itemNumber =
+                        match[0];
+
+                    break;
+                }
+            }
+        }
+
+
+        if (
+            itemNumber ===
+            String(number)
+        ) {
+
+            const interpretation =
+                String(
+                    item.interpretation ??
+                    ""
+                ).trim();
+
+
+            if (
+                isValidInterpretation(
+                    interpretation
+                )
+            ) {
+
+                return interpretation;
+            }
+        }
+    }
+
 
     return null;
 }
 
 
-try {
+/* ==================================
+Clean Poem
+================================== */
 
-    const response =
-        await fetch(
-            sourceUrl
-        );
+function cleanPoem(poem) {
 
+    if (!poem) {
 
-    if (!response.ok) {
-
-        return null;
+        return "";
     }
 
 
-    const html =
-        await response.text();
+    let text =
+        String(poem);
 
 
-    const candidates =
-        extractAudioUrls(
-            html,
-            sourceUrl
+    text =
+        text.replace(
+            /\r\n/g,
+            "\n"
         );
 
 
-    if (
-        candidates.length === 0
-    ) {
-
-        return null;
-    }
-
-
-    /*
-     * اول OGG
-     * سپس سایر فرمت‌ها
-     */
-
-    const oggCandidates =
-        candidates.filter(
-            url =>
-                url
-                    .toLowerCase()
-                    .includes(
-                        ".ogg"
-                    )
+    text =
+        text.replace(
+            /\r/g,
+            "\n"
         );
 
 
-    const ordered =
-        [
-            ...oggCandidates,
-
-            ...candidates.filter(
-                url =>
-                    !oggCandidates.includes(
-                        url
-                    )
-            )
-        ];
+    text =
+        text.replace(
+            /\n{3,}/g,
+            "\n\n"
+        );
 
 
-    for (
-        const candidate
-        of ordered
-    ) {
-
-        const valid =
-            await checkAudioUrl(
-                candidate
-            );
-
-
-        if (valid) {
-
-            return candidate;
-        }
-    }
-
-} catch (error) {
-
-    console.warn(
-        "[AUDIO] Resolve source failed:",
-        error
-    );
-}
-
-
-return null;
-
-
-
+    return text.trim();
 }
 
 
 /* ==================================
-Resolve Final Audio
-همان ترتیب bot.py
+Audio
+فقط از Audio موجود در HafezFilebot
 ================================== */
 
+function getDirectAudio(record) {
 
-async function resolveFinalAudioUrl(
-record
-) {
+    if (!record) {
 
-
-/*
- * اول Audio مستقیم رکورد
- */
-
-const directAudio =
-    getDirectAudio(
-        record
-    );
+        return "";
+    }
 
 
-if (directAudio) {
-
-    return directAudio;
-}
-
-
-/*
- * اگر Audio نداشت،
- * از Source برای پیدا کردن صوت
- * استفاده می‌کنیم.
- */
-
-const source =
-    String(
-        record.source ?? ""
+    return String(
+        record.audio ?? ""
     ).trim();
-
-
-if (source) {
-
-    return await resolveAudioFromSource(
-        source
-    );
-}
-
-
-return null;
-
-
-
 }
 
 
@@ -1007,23 +570,18 @@ return null;
 Reset Audio Player
 ================================== */
 
-
 function resetAudioPlayer() {
 
+    audioPlayer.pause();
 
-audioPlayer.pause();
+    audioPlayer.removeAttribute(
+        "src"
+    );
 
-audioPlayer.removeAttribute(
-    "src"
-);
+    audioPlayer.load();
 
-audioPlayer.load();
-
-audioPlayer.style.display =
-    "none";
-
-
-
+    audioPlayer.style.display =
+        "none";
 }
 
 
@@ -1031,54 +589,50 @@ audioPlayer.style.display =
 Show Audio
 ================================== */
 
+function showAudio(record) {
 
-async function showAudio(
-record
-) {
-
-
-resetAudioPlayer();
+    resetAudioPlayer();
 
 
-/*
- * صوت مستقیم HafezFilebot
- * بدون نیاز به دانلود یا سرور واسطه
- */
+    const audioUrl =
+        getDirectAudio(
+            record
+        );
 
-const audioUrl =
-    await resolveFinalAudioUrl(
-        record
+
+    if (!audioUrl) {
+
+        console.warn(
+            "[AUDIO] No direct audio available."
+        );
+
+        return;
+    }
+
+
+    /*
+     * URL صوت مستقیماً از
+     * HafezFilebot.json استفاده می‌شود.
+     *
+     * هیچ HEAD یا fetch روی فایل صوتی
+     * انجام نمی‌شود.
+     */
+
+    audioPlayer.src =
+        audioUrl;
+
+
+    audioPlayer.style.display =
+        "block";
+
+
+    audioPlayer.load();
+
+
+    console.log(
+        "[AUDIO] Ready:",
+        audioUrl
     );
-
-
-if (!audioUrl) {
-
-    console.warn(
-        "[AUDIO] No audio available."
-    );
-
-    return;
-}
-
-
-audioPlayer.src =
-    audioUrl;
-
-
-audioPlayer.style.display =
-    "block";
-
-
-audioPlayer.load();
-
-
-console.log(
-    "[AUDIO] Ready:",
-    audioUrl
-);
-
-
-
 }
 
 
@@ -1086,163 +640,141 @@ console.log(
 Show Fortune
 ================================== */
 
-
 async function showFortune() {
 
+    if (
+        !hazals.length
+    ) {
 
-if (
-    !hazals.length
-) {
+        alert(
+            "غزلی برای فال حافظ پیدا نشد."
+        );
 
-    alert(
-        "غزلی برای فال حافظ پیدا نشد."
-    );
-
-    return;
-}
-
-
-let fortune;
+        return;
+    }
 
 
-/*
- * فال قبلی بلافاصله تکرار نشود.
- */
+    let fortune;
 
-if (
-    hazals.length > 1
-) {
 
-    do {
+    if (
+        hazals.length > 1
+    ) {
+
+        do {
+
+            fortune =
+                randomItem(
+                    hazals
+                );
+
+        } while (
+            fortune === lastFortune
+        );
+
+    } else {
 
         fortune =
-            randomItem(
-                hazals
-            );
+            hazals[0];
+    }
 
-    } while (
-        fortune === lastFortune
+
+    lastFortune =
+        fortune;
+
+
+    const number =
+        getGhazalNumber(
+            fortune
+        );
+
+
+    const title =
+        fortune.title ||
+        (
+            number
+                ? `غزل شمارهٔ ${number}`
+                : "غزل حافظ"
+        );
+
+
+    const poem =
+        cleanPoem(
+            fortune.poem
+        );
+
+
+    const source =
+        fortune.source;
+
+
+    const tabir =
+        getInterpretation(
+            fortune
+        );
+
+
+    console.log(
+        `[FORTUNE] Selected ghazal #${number}`
     );
 
-} else {
 
-    fortune =
-        hazals[0];
-}
+    console.log(
+        `[TABIR] ${
+            tabir
+                ? "Found"
+                : "Not found"
+        } for ghazal #${number}`
+    );
 
 
-lastFortune =
-    fortune;
+    poemTitle.textContent =
+        title;
 
 
-const number =
-    getGhazalNumber(
+    poemText.textContent =
+        poem ||
+        "متن غزل موجود نیست.";
+
+
+    if (source) {
+
+        poemSource.textContent =
+            `منبع: ${source}`;
+
+    } else {
+
+        poemSource.textContent =
+            "";
+    }
+
+
+    interpretation.textContent =
+        tabir ||
+        "تعبیری برای این غزل ثبت نشده است.";
+
+
+    homeScreen.classList.remove(
+        "active"
+    );
+
+
+    fortuneScreen.classList.add(
+        "active"
+    );
+
+
+    window.scrollTo({
+
+        top: 0,
+
+        behavior: "smooth"
+    });
+
+
+    showAudio(
         fortune
     );
-
-
-const title =
-    fortune.title ||
-    (
-        number
-            ? `غزل شمارهٔ ${number}`
-            : "غزل حافظ"
-    );
-
-
-const poem =
-    cleanPoem(
-        fortune.poem
-    );
-
-
-const source =
-    fortune.source;
-
-
-const tabir =
-    getInterpretation(
-        fortune
-    );
-
-
-console.log(
-    `[FORTUNE] Selected ghazal #${number}`
-);
-
-
-console.log(
-    `[TABIR] ${
-        tabir
-            ? "Found"
-            : "Not found"
-    } for ghazal #${number}`
-);
-
-
-/*
- * نمایش اطلاعات
- */
-
-poemTitle.textContent =
-    title;
-
-
-poemText.textContent =
-    poem ||
-    "متن غزل موجود نیست.";
-
-
-if (source) {
-
-    poemSource.textContent =
-        `منبع: ${source}`;
-
-} else {
-
-    poemSource.textContent =
-        "";
-}
-
-
-interpretation.textContent =
-    tabir ||
-    "تعبیری برای این غزل ثبت نشده است.";
-
-
-/*
- * ابتدا صفحه نمایش داده شود
- */
-
-homeScreen.classList.remove(
-    "active"
-);
-
-
-fortuneScreen.classList.add(
-    "active"
-);
-
-
-window.scrollTo({
-
-    top: 0,
-
-    behavior: "smooth"
-
-});
-
-
-/*
- * سپس صوت آماده شود.
- */
-
-await showAudio(
-    fortune
-);
-
-
-
 }
 
 
@@ -1250,16 +782,15 @@ await showAudio(
 Buttons
 ================================== */
 
-
 fortuneButton.addEventListener(
-"click",
-showFortune
+    "click",
+    showFortune
 );
 
 
 newFortuneButton.addEventListener(
-"click",
-showFortune
+    "click",
+    showFortune
 );
 
 
@@ -1267,34 +798,29 @@ showFortune
 Startup
 ================================== */
 
-
 fortuneButton.disabled =
-true;
+    true;
 
 
 loadData()
-.then(() => {
+    .then(() => {
+
+        fortuneButton.disabled =
+            false;
+
+    })
+    .catch(error => {
+
+        console.error(
+            "[STARTUP]",
+            error
+        );
 
 
-    fortuneButton.disabled =
-        false;
-
-})
-.catch(error => {
-
-    console.error(
-        "[STARTUP]",
-        error
-    );
+        fortuneButton.disabled =
+            true;
 
 
-    fortuneButton.disabled =
-        true;
-
-
-    fortuneButton.textContent =
-        "خطا در بارگذاری اطلاعات فال";
-});
-
-
-
+        fortuneButton.textContent =
+            "خطا در بارگذاری اطلاعات فال";
+    });
