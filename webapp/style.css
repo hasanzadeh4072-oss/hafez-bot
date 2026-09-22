@@ -36,11 +36,6 @@ button {
     display: block;
 }
 
-
-/* -----------------------------
-   صفحه اصلی
------------------------------ */
-
 #homeScreen {
     min-height: calc(100vh - 48px);
     display: none;
@@ -60,35 +55,17 @@ button {
 }
 
 h1 {
-    margin: 0 0 20px;
+    margin: 0 0 12px;
     font-size: 30px;
 }
 
-
-/* -----------------------------
-   متن نیت
------------------------------ */
-
-.intention {
-    margin: 0 auto 28px;
-    max-width: 540px;
-    color: #4b5563;
-    font-size: 16px;
-    font-weight: 500;
-    line-height: 2.2;
-    text-align: center;
+.subtitle {
+    margin: 0 auto 30px;
+    color: #6b7280;
+    line-height: 1.9;
+    font-size: 15px;
+    max-width: 400px;
 }
-
-.new-fortune-hint {
-    margin-top: 20px;
-    margin-bottom: 14px;
-    padding: 0 6px;
-}
-
-
-/* -----------------------------
-   دکمه اصلی
------------------------------ */
 
 .primary-btn {
     width: 100%;
@@ -101,7 +78,6 @@ h1 {
     font-size: 16px;
     font-weight: bold;
     cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
 }
 
 .primary-btn:active {
@@ -112,11 +88,6 @@ h1 {
     opacity: 0.7;
     cursor: not-allowed;
 }
-
-
-/* -----------------------------
-   کارت فال
------------------------------ */
 
 .fortune-card {
     background: #fff;
@@ -166,51 +137,16 @@ h1 {
     white-space: pre-line;
 }
 
-
-/* -----------------------------
-   بخش صوت
------------------------------ */
-
-.audio-section {
-    margin-top: 24px;
-    text-align: center;
-}
-
-.audio-btn {
+#audioPlayer {
     width: 100%;
-    border: none;
-    border-radius: 14px;
-    padding: 14px 18px;
-    background: #2f7d5a;
-    color: #fff;
-    font-size: 15px;
-    font-weight: bold;
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
+    margin-top: 22px;
 }
 
-.audio-btn:active {
-    transform: scale(0.98);
+#newFortuneButton {
+    margin-top: 18px;
 }
-
-.audio-btn.playing {
-    background: #256449;
-}
-
-.audio-status {
-    min-height: 20px;
-    margin-top: 8px;
-    color: #6b7280;
-    font-size: 12px;
-}
-
-
-/* -----------------------------
-   موبایل
------------------------------ */
 
 @media (max-width: 400px) {
-
     .app {
         padding: 18px 12px;
     }
@@ -221,14 +157,5 @@ h1 {
 
     .fortune-card {
         padding: 20px 14px;
-    }
-
-    .intention {
-        font-size: 15px;
-        line-height: 2.15;
-    }
-
-    .audio-btn {
-        font-size: 14px;
     }
 }
