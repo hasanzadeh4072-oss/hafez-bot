@@ -1,1 +1,77 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
 
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    >
+
+    <script src="https://app.splus.ir/js/soroush-web-app.js"></script>
+
+    <title>فال حافظ</title>
+
+    <link rel="stylesheet" href="./style.css">
+</head>
+
+<body>
+
+    <main class="app">
+
+        <section id="homeScreen" class="screen active">
+
+            <div class="logo">🌿</div>
+
+            <h1>فال حافظ</h1>
+
+            <p class="subtitle">
+                نیتی کنید و غزل حافظ را به فال خود بگیرید
+            </p>
+
+            <button id="fortuneButton" class="primary-btn">
+                ✨ گرفتن فال حافظ
+            </button>
+
+        </section>
+
+
+        <section id="fortuneScreen" class="screen">
+
+            <div class="fortune-card">
+
+                <h2 id="poemTitle"></h2>
+
+                <div id="poemText" class="poem"></div>
+
+                <div id="poemSource" class="source"></div>
+
+                <div class="divider"></div>
+
+                <h3>تعبیر فال</h3>
+
+                <div id="interpretation" class="interpretation">
+                    در حال آماده‌سازی تعبیر...
+                </div>
+
+                <audio
+                    id="audioPlayer"
+                    controls
+                    preload="none"
+                    style="display:none;"
+                ></audio>
+
+            </div>
+
+            <button id="newFortuneButton" class="primary-btn">
+                🔄 فال دوباره
+            </button>
+
+        </section>
+
+    </main>
+
+    <script src="./app.js"></script>
+
+</body>
+</html>
