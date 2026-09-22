@@ -25,10 +25,6 @@
 
             <h1>فال حافظ</h1>
 
-            <p class="subtitle">
-                نیتی کنید و غزل حافظ را به فال خود بگیرید
-            </p>
-
             <p class="intention">
                 نیت خویش را در دل بگذرانید، صلواتی نثار روان حافظ کنید
                 و آنگاه دیوانش را بگشایید.
@@ -62,10 +58,16 @@
                 <audio
                     id="audioPlayer"
                     controls
-                    preload="none"
+                    preload="metadata"
+                    playsinline
                     style="display:none;"
                 ></audio>
 
+            </div>
+
+            <div id="newFortuneHint" class="intention new-fortune-hint">
+                نیت خویش را در دل بگذرانید، صلواتی نثار روان حافظ کنید
+                و آنگاه فال دوباره را بزنید.
             </div>
 
             <button id="newFortuneButton" class="primary-btn">
