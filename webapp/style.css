@@ -64,13 +64,25 @@ h1 {
     font-size: 30px;
 }
 
+
+/* -----------------------------
+   متن نیت
+----------------------------- */
+
 .intention {
     margin: 0 auto 28px;
-    max-width: 440px;
+    max-width: 540px;
     color: #4b5563;
-    font-size: 14px;
-    line-height: 2.1;
+    font-size: 16px;
+    font-weight: 500;
+    line-height: 2.2;
     text-align: center;
+}
+
+.new-fortune-hint {
+    margin-top: 20px;
+    margin-bottom: 14px;
+    padding: 0 6px;
 }
 
 
@@ -194,17 +206,6 @@ h1 {
 
 
 /* -----------------------------
-   فال دوباره
------------------------------ */
-
-.new-fortune-hint {
-    margin-top: 20px;
-    margin-bottom: 14px;
-    padding: 0 6px;
-}
-
-
-/* -----------------------------
    موبایل
 ----------------------------- */
 
@@ -223,7 +224,8 @@ h1 {
     }
 
     .intention {
-        font-size: 13px;
+        font-size: 15px;
+        line-height: 2.15;
     }
 
     .audio-btn {
