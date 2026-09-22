@@ -19,6 +19,7 @@
 
     <main class="app">
 
+        <!-- صفحه اصلی -->
         <section id="homeScreen" class="screen active">
 
             <div class="logo">🌿</div>
@@ -30,53 +31,90 @@
                 و آنگاه دیوانش را بگشایید.
             </p>
 
-            <button id="fortuneButton" class="primary-btn">
+            <button
+                id="fortuneButton"
+                class="primary-btn"
+                type="button"
+            >
                 ✨ گرفتن فال حافظ
             </button>
 
         </section>
 
 
+        <!-- صفحه فال -->
         <section id="fortuneScreen" class="screen">
 
             <div class="fortune-card">
 
                 <h2 id="poemTitle"></h2>
 
-                <div id="poemText" class="poem"></div>
+                <div
+                    id="poemText"
+                    class="poem"
+                ></div>
 
-                <div id="poemSource" class="source"></div>
+                <div
+                    id="poemSource"
+                    class="source"
+                ></div>
+
+
+                <!-- صوت -->
+                <div
+                    id="audioSection"
+                    class="audio-section"
+                    style="display:none;"
+                >
+
+                    <button
+                        id="audioButton"
+                        class="audio-btn"
+                        type="button"
+                    >
+                        ▶️ پخش صوت غزل
+                    </button>
+
+                    <div
+                        id="audioStatus"
+                        class="audio-status"
+                    ></div>
+
+                </div>
+
 
                 <div class="divider"></div>
 
+
                 <h3>تعبیر فال</h3>
 
-                <div id="interpretation" class="interpretation">
+                <div
+                    id="interpretation"
+                    class="interpretation"
+                >
                     در حال آماده‌سازی تعبیر...
                 </div>
 
-                <audio
-                    id="audioPlayer"
-                    controls
-                    preload="metadata"
-                    playsinline
-                    style="display:none;"
-                ></audio>
-
             </div>
 
-            <div id="newFortuneHint" class="intention new-fortune-hint">
-                نیت خویش را در دل بگذرانید، صلواتی نثار روان حافظ کنید
-                و آنگاه فال دوباره را بزنید.
+
+            <div class="intention new-fortune-hint">
+                برای فال مجدد، نیت خویش را در دل بگذرانید، صلواتی نثار روان حافظ کنید و آنگاه فال دوباره را بزنید.
             </div>
 
-            <button id="newFortuneButton" class="primary-btn">
+
+            <button
+                id="newFortuneButton"
+                class="primary-btn"
+                type="button"
+            >
                 🔄 فال دوباره
             </button>
 
         </section>
 
     </main>
+
 
     <script src="./app.js"></script>
 
