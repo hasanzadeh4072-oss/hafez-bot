@@ -36,6 +36,11 @@ button {
     display: block;
 }
 
+
+/* -----------------------------
+   صفحه اصلی
+----------------------------- */
+
 #homeScreen {
     min-height: calc(100vh - 48px);
     display: none;
@@ -55,26 +60,23 @@ button {
 }
 
 h1 {
-    margin: 0 0 12px;
+    margin: 0 0 20px;
     font-size: 30px;
-}
-
-.subtitle {
-    margin: 0 auto 18px;
-    color: #6b7280;
-    line-height: 1.9;
-    font-size: 15px;
-    max-width: 400px;
 }
 
 .intention {
     margin: 0 auto 28px;
-    max-width: 420px;
+    max-width: 440px;
     color: #4b5563;
     font-size: 14px;
     line-height: 2.1;
     text-align: center;
 }
+
+
+/* -----------------------------
+   دکمه اصلی
+----------------------------- */
 
 .primary-btn {
     width: 100%;
@@ -87,6 +89,7 @@ h1 {
     font-size: 16px;
     font-weight: bold;
     cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .primary-btn:active {
@@ -97,6 +100,11 @@ h1 {
     opacity: 0.7;
     cursor: not-allowed;
 }
+
+
+/* -----------------------------
+   کارت فال
+----------------------------- */
 
 .fortune-card {
     background: #fff;
@@ -146,14 +154,59 @@ h1 {
     white-space: pre-line;
 }
 
-#audioPlayer {
-    width: 100%;
-    margin-top: 22px;
+
+/* -----------------------------
+   بخش صوت
+----------------------------- */
+
+.audio-section {
+    margin-top: 24px;
+    text-align: center;
 }
 
-#newFortuneButton {
-    margin-top: 18px;
+.audio-btn {
+    width: 100%;
+    border: none;
+    border-radius: 14px;
+    padding: 14px 18px;
+    background: #2f7d5a;
+    color: #fff;
+    font-size: 15px;
+    font-weight: bold;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
 }
+
+.audio-btn:active {
+    transform: scale(0.98);
+}
+
+.audio-btn.playing {
+    background: #256449;
+}
+
+.audio-status {
+    min-height: 20px;
+    margin-top: 8px;
+    color: #6b7280;
+    font-size: 12px;
+}
+
+
+/* -----------------------------
+   فال دوباره
+----------------------------- */
+
+.new-fortune-hint {
+    margin-top: 20px;
+    margin-bottom: 14px;
+    padding: 0 6px;
+}
+
+
+/* -----------------------------
+   موبایل
+----------------------------- */
 
 @media (max-width: 400px) {
 
@@ -171,5 +224,9 @@ h1 {
 
     .intention {
         font-size: 13px;
+    }
+
+    .audio-btn {
+        font-size: 14px;
     }
 }
