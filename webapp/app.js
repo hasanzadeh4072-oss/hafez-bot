@@ -32,28 +32,21 @@ async function loadData() {
         hafezResponse,
         tabirResponse
     ] = await Promise.all([
-
         fetch("../HafezFilebot.json"),
-
         fetch("../Hafez_Tabir.json")
     ]);
 
-
     if (!hafezResponse.ok) {
-
         throw new Error(
             "خطا در دریافت HafezFilebot.json"
         );
     }
 
-
     if (!tabirResponse.ok) {
-
         throw new Error(
             "خطا در دریافت Hafez_Tabir.json"
         );
     }
-
 
     const hafezData =
         await hafezResponse.json();
@@ -61,31 +54,25 @@ async function loadData() {
     const tabirData =
         await tabirResponse.json();
 
-
     hazals =
         normalizeHafezData(
             hafezData
         );
-
 
     interpretations =
         Array.isArray(tabirData)
             ? tabirData
             : [];
 
-
     if (hazals.length === 0) {
-
         throw new Error(
             "هیچ غزلی در HafezFilebot.json پیدا نشد."
         );
     }
 
-
     console.log(
         `[DATA] Loaded ${hazals.length} ghazals.`
     );
-
 
     console.log(
         `[TABIR] Loaded ${interpretations.length} interpretations.`
@@ -101,12 +88,9 @@ function normalizeHafezData(data) {
 
     const result = [];
 
-
     if (!Array.isArray(data)) {
-
         return result;
     }
-
 
     for (const item of data) {
 
@@ -114,10 +98,8 @@ function normalizeHafezData(data) {
             !item ||
             typeof item !== "object"
         ) {
-
             continue;
         }
-
 
         for (
             const [recordId, record]
@@ -128,22 +110,17 @@ function normalizeHafezData(data) {
                 !record ||
                 typeof record !== "object"
             ) {
-
                 continue;
             }
-
 
             const poem =
                 String(
                     record.Poem ?? ""
                 ).trim();
 
-
             if (!poem) {
-
                 continue;
             }
-
 
             result.push({
 
@@ -185,7 +162,6 @@ function normalizeHafezData(data) {
         }
     }
 
-
     return result;
 }
 
@@ -200,10 +176,8 @@ function randomItem(array) {
         !Array.isArray(array) ||
         array.length === 0
     ) {
-
         return null;
     }
-
 
     return array[
         Math.floor(
@@ -215,70 +189,55 @@ function randomItem(array) {
 
 /* ==================================
 Ghazal Number
-همان منطق bot.py
 ================================== */
 
 function getGhazalNumber(record) {
 
     if (!record) {
-
         return null;
     }
-
 
     const source =
         String(
             record.source ?? ""
         );
 
-
     const sourceMatch =
         source.match(
             /\/sh(\d+)/i
         );
 
-
     if (sourceMatch) {
-
         return sourceMatch[1];
     }
-
 
     const title =
         String(
             record.title ?? ""
         );
 
-
     const titleMatch =
         title.match(
             /\d+/
         );
 
-
     if (titleMatch) {
-
         return titleMatch[0];
     }
-
 
     const recordId =
         String(
             record.record_id ?? ""
         );
 
-
     const idMatch =
         recordId.match(
             /\d+/
         );
 
-
     if (idMatch) {
-
         return idMatch[0];
     }
-
 
     return recordId || null;
 }
@@ -296,29 +255,23 @@ function isValidInterpretation(
         interpretation === null ||
         interpretation === undefined
     ) {
-
         return false;
     }
-
 
     const text =
         String(
             interpretation
         ).trim();
 
-
     if (!text) {
-
         return false;
     }
-
 
     const normalized =
         text.replace(
             /\s/g,
             ""
         );
-
 
     const invalidPhrases = [
 
@@ -333,7 +286,6 @@ function isValidInterpretation(
         "هنوزتعبیریثبتنشده"
     ];
 
-
     for (
         const phrase
         of invalidPhrases
@@ -344,11 +296,9 @@ function isValidInterpretation(
                 phrase
             )
         ) {
-
             return false;
         }
     }
-
 
     return true;
 }
@@ -358,25 +308,19 @@ function isValidInterpretation(
 Load Interpretation
 ================================== */
 
-function getInterpretation(
-    record
-) {
+function getInterpretation(record) {
 
     const number =
         getGhazalNumber(
             record
         );
 
-
     if (!number) {
-
         return null;
     }
 
-
     const index =
         Number(number) - 1;
-
 
     if (
         Number.isInteger(index) &&
@@ -386,7 +330,6 @@ function getInterpretation(
 
         const item =
             interpretations[index];
-
 
         if (
             item &&
@@ -399,18 +342,15 @@ function getInterpretation(
                     ""
                 ).trim();
 
-
             if (
                 isValidInterpretation(
                     interpretation
                 )
             ) {
-
                 return interpretation;
             }
         }
     }
-
 
     for (
         const item
@@ -421,10 +361,8 @@ function getInterpretation(
             !item ||
             typeof item !== "object"
         ) {
-
             continue;
         }
-
 
         const possibleFields = [
 
@@ -443,9 +381,7 @@ function getInterpretation(
             "ID"
         ];
 
-
         let itemNumber = null;
-
 
         for (
             const field
@@ -454,7 +390,6 @@ function getInterpretation(
 
             const value =
                 item[field];
-
 
             if (
                 value !== undefined &&
@@ -466,7 +401,6 @@ function getInterpretation(
                         /\d+/
                     );
 
-
                 if (match) {
 
                     itemNumber =
@@ -476,7 +410,6 @@ function getInterpretation(
                 }
             }
         }
-
 
         if (
             itemNumber ===
@@ -489,18 +422,15 @@ function getInterpretation(
                     ""
                 ).trim();
 
-
             if (
                 isValidInterpretation(
                     interpretation
                 )
             ) {
-
                 return interpretation;
             }
         }
     }
-
 
     return null;
 }
@@ -513,14 +443,11 @@ Clean Poem
 function cleanPoem(poem) {
 
     if (!poem) {
-
         return "";
     }
 
-
     let text =
         String(poem);
-
 
     text =
         text.replace(
@@ -528,13 +455,11 @@ function cleanPoem(poem) {
             "\n"
         );
 
-
     text =
         text.replace(
             /\r/g,
             "\n"
         );
-
 
     text =
         text.replace(
@@ -542,27 +467,318 @@ function cleanPoem(poem) {
             "\n\n"
         );
 
-
     return text.trim();
 }
 
 
 /* ==================================
-Audio
-فقط از Audio موجود در HafezFilebot
+Audio URL
 ================================== */
 
 function getDirectAudio(record) {
 
     if (!record) {
-
         return "";
     }
-
 
     return String(
         record.audio ?? ""
     ).trim();
+}
+
+
+/* ==================================
+Audio URL Extraction
+همان منطق بات
+================================== */
+
+function extractAudioUrls(
+    html,
+    baseUrl
+) {
+
+    const candidates = [];
+
+    const absoluteUrls =
+        html.match(
+            /https?:\/\/[^"'>\s]+?\.(?:ogg|mp3)(?:\?[^"'>\s]*)?/gi
+        ) || [];
+
+    for (
+        let url
+        of absoluteUrls
+    ) {
+
+        url =
+            url.replace(
+                /&amp;/g,
+                "&"
+            );
+
+        candidates.push(
+            url
+        );
+    }
+
+
+    const relativeUrls =
+        html.match(
+            /["']([^"']+\.(?:ogg|mp3)(?:\?[^"]*)?)["']/gi
+        ) || [];
+
+
+    for (
+        const match
+        of relativeUrls
+    ) {
+
+        const extracted =
+            match.substring(
+                1,
+                match.length - 1
+            );
+
+        try {
+
+            candidates.push(
+                new URL(
+                    extracted,
+                    baseUrl
+                ).href
+            );
+
+        } catch (error) {
+
+            console.warn(
+                "[AUDIO] Invalid relative URL:",
+                extracted
+            );
+        }
+    }
+
+
+    const unique = [];
+
+    const seen = new Set();
+
+    for (
+        const url
+        of candidates
+    ) {
+
+        if (!seen.has(url)) {
+
+            seen.add(url);
+
+            unique.push(url);
+        }
+    }
+
+
+    const ganjoor =
+        unique.filter(
+            url =>
+                url
+                    .toLowerCase()
+                    .includes(
+                        "i.ganjoor.net"
+                    )
+        );
+
+
+    if (ganjoor.length) {
+        return ganjoor;
+    }
+
+
+    return unique;
+}
+
+
+/* ==================================
+Resolve Audio From Source
+================================== */
+
+async function resolveAudioFromSource(
+    sourceUrl
+) {
+
+    if (!sourceUrl) {
+        return "";
+    }
+
+    try {
+
+        console.log(
+            "[AUDIO] Resolving source:",
+            sourceUrl
+        );
+
+
+        const response =
+            await fetch(
+                sourceUrl
+            );
+
+
+        if (!response.ok) {
+
+            console.warn(
+                "[AUDIO] Source page status:",
+                response.status
+            );
+
+            return "";
+        }
+
+
+        const html =
+            await response.text();
+
+
+        const candidates =
+            extractAudioUrls(
+                html,
+                sourceUrl
+            );
+
+
+        if (!candidates.length) {
+
+            console.warn(
+                "[AUDIO] No audio URL found."
+            );
+
+            return "";
+        }
+
+
+        const oggCandidates =
+            candidates.filter(
+                url =>
+                    url
+                        .toLowerCase()
+                        .includes(".ogg")
+            );
+
+
+        const orderedCandidates = [
+
+            ...oggCandidates,
+
+            ...candidates.filter(
+                url =>
+                    !oggCandidates.includes(
+                        url
+                    )
+            )
+        ];
+
+
+        for (
+            const candidate
+            of orderedCandidates
+        ) {
+
+            console.log(
+                "[AUDIO] Candidate:",
+                candidate
+            );
+
+
+            /*
+             * برخلاف بات، اینجا فایل را دانلود نمی‌کنیم.
+             *
+             * فقط URL مناسب را برای
+             * HTML5 Audio برمی‌گردانیم.
+             */
+
+            return candidate;
+        }
+
+
+    } catch (error) {
+
+        console.error(
+            "[AUDIO] Resolve error:",
+            error
+        );
+    }
+
+
+    return "";
+}
+
+
+/* ==================================
+Resolve Final Audio
+================================== */
+
+async function resolveFinalAudioUrl(
+    record
+) {
+
+    if (!record) {
+        return "";
+    }
+
+
+    /*
+     * اول Audio موجود در
+     * HafezFilebot.json
+     */
+
+    const directAudio =
+        getDirectAudio(
+            record
+        );
+
+
+    if (directAudio) {
+
+        console.log(
+            "[AUDIO] Using Audio field:",
+            directAudio
+        );
+
+        return directAudio;
+    }
+
+
+    /*
+     * اگر Audio خالی بود،
+     * از Source غزل استفاده می‌کنیم.
+     *
+     * این همان fallback اصلی
+     * بات است.
+     */
+
+    const source =
+        String(
+            record.source ?? ""
+        ).trim();
+
+
+    if (source) {
+
+        const resolved =
+            await resolveAudioFromSource(
+                source
+            );
+
+        if (resolved) {
+
+            console.log(
+                "[AUDIO] Resolved from Source:",
+                resolved
+            );
+
+            return resolved;
+        }
+    }
+
+
+    return "";
 }
 
 
@@ -572,13 +788,18 @@ Reset Audio Player
 
 function resetAudioPlayer() {
 
-    audioPlayer.pause();
+    try {
+        audioPlayer.pause();
+    } catch (error) {
+        console.warn(
+            "[AUDIO] Pause error:",
+            error
+        );
+    }
 
     audioPlayer.removeAttribute(
         "src"
     );
-
-    audioPlayer.load();
 
     audioPlayer.style.display =
         "none";
@@ -589,13 +810,13 @@ function resetAudioPlayer() {
 Show Audio
 ================================== */
 
-function showAudio(record) {
+async function showAudio(record) {
 
     resetAudioPlayer();
 
 
     const audioUrl =
-        getDirectAudio(
+        await resolveFinalAudioUrl(
             record
         );
 
@@ -603,20 +824,18 @@ function showAudio(record) {
     if (!audioUrl) {
 
         console.warn(
-            "[AUDIO] No direct audio available."
+            "[AUDIO] No audio URL available."
         );
 
         return;
     }
 
 
-    /*
-     * URL صوت مستقیماً از
-     * HafezFilebot.json استفاده می‌شود.
-     *
-     * هیچ HEAD یا fetch روی فایل صوتی
-     * انجام نمی‌شود.
-     */
+    console.log(
+        "[AUDIO] Final URL:",
+        audioUrl
+    );
+
 
     audioPlayer.src =
         audioUrl;
@@ -626,13 +845,23 @@ function showAudio(record) {
         "block";
 
 
+    /*
+     * اینجا عمداً play() نمی‌کنیم.
+     * پخش خودکار ممکن است توسط WebView
+     * مسدود شود.
+     */
+
     audioPlayer.load();
 
 
-    console.log(
-        "[AUDIO] Ready:",
-        audioUrl
-    );
+    audioPlayer.onerror =
+        function () {
+
+            console.error(
+                "[AUDIO] Browser could not load:",
+                audioUrl
+            );
+        };
 }
 
 
@@ -642,9 +871,7 @@ Show Fortune
 
 async function showFortune() {
 
-    if (
-        !hazals.length
-    ) {
+    if (!hazals.length) {
 
         alert(
             "غزلی برای فال حافظ پیدا نشد."
@@ -714,20 +941,6 @@ async function showFortune() {
         );
 
 
-    console.log(
-        `[FORTUNE] Selected ghazal #${number}`
-    );
-
-
-    console.log(
-        `[TABIR] ${
-            tabir
-                ? "Found"
-                : "Not found"
-        } for ghazal #${number}`
-    );
-
-
     poemTitle.textContent =
         title;
 
@@ -772,7 +985,12 @@ async function showFortune() {
     });
 
 
-    showAudio(
+    /*
+     * صوت را بعد از نمایش فال
+     * به صورت مستقل آماده می‌کنیم.
+     */
+
+    await showAudio(
         fortune
     );
 }
@@ -816,10 +1034,8 @@ loadData()
             error
         );
 
-
         fortuneButton.disabled =
             true;
-
 
         fortuneButton.textContent =
             "خطا در بارگذاری اطلاعات فال";
