@@ -27,37 +27,96 @@ async function loadData() {
     const tabirData = await tabirResponse.json();
 
 
-    /*
-     * HafezFilebot.json معمولاً به صورت:
-     *
-     * {
-     *   "2301": {
-     *      "Poem": "...",
-     *      "Title": "غزل شمارهٔ ۱۷۲",
-     *      "Audio": "https://i.ganjoor.net/a/2301.ogg"
-     *   }
-     * }
-     *
-     * است.
-     */
+    /* =========================
+       ساختار واقعی HafezFilebot.json
+       
+       [
+           {
+               "2130": {...},
+               "2131": {...},
+               ...
+           }
+       ]
+       ========================= */
+
+    ghazals = [];
 
     if (Array.isArray(ghazalData)) {
-        ghazals = ghazalData;
-    } else {
-        ghazals = Object.values(ghazalData || {});
+
+        for (const group of ghazalData) {
+
+            if (
+                !group ||
+                typeof group !== "object"
+            ) {
+                continue;
+            }
+
+            for (const [recordId, record] of Object.entries(group)) {
+
+                if (
+                    !record ||
+                    typeof record !== "object"
+                ) {
+                    continue;
+                }
+
+                ghazals.push({
+                    record_id: String(recordId),
+                    ...record
+                });
+            }
+        }
+
+    } else if (
+        ghazalData &&
+        typeof ghazalData === "object"
+    ) {
+
+        for (
+            const [recordId, record]
+            of Object.entries(ghazalData)
+        ) {
+
+            if (
+                !record ||
+                typeof record !== "object"
+            ) {
+                continue;
+            }
+
+            ghazals.push({
+                record_id: String(recordId),
+                ...record
+            });
+        }
     }
 
 
+    /* =========================
+       تعبیرها
+       ========================= */
+
     if (Array.isArray(tabirData)) {
         interpretations = tabirData;
+    } else if (
+        tabirData &&
+        typeof tabirData === "object"
+    ) {
+        interpretations = Object.values(tabirData);
     } else {
-        interpretations = Object.values(tabirData || {});
+        interpretations = [];
     }
 
 
     if (!ghazals.length) {
-        throw new Error("بانک اشعار خالی است");
+        throw new Error("هیچ غزلی در بانک پیدا نشد.");
     }
+
+
+    console.log(
+        `[DATA] Loaded ${ghazals.length} ghazals`
+    );
 }
 
 
@@ -70,8 +129,10 @@ function getGhazalNumber(record) {
     const source =
         String(record?.Source || "").trim();
 
+
     const sourceMatch =
         source.match(/\/sh(\d+)/i);
+
 
     if (sourceMatch) {
         return Number(sourceMatch[1]);
@@ -81,8 +142,10 @@ function getGhazalNumber(record) {
     const title =
         String(record?.Title || "").trim();
 
+
     const titleMatch =
         title.match(/(\d+)/);
+
 
     if (titleMatch) {
         return Number(titleMatch[1]);
@@ -102,6 +165,7 @@ function getInterpretationText(record) {
     if (!record) {
         return "";
     }
+
 
     return (
         record.Interpretation ??
@@ -126,11 +190,17 @@ function findInterpretation(ghazalNumber) {
     }
 
 
-    /*
-     * اول فیلد شمارهٔ صریح را بررسی می‌کنیم.
-     */
+    /* ابتدا شمارهٔ صریح را بررسی می‌کنیم */
 
     for (const record of interpretations) {
+
+        if (
+            !record ||
+            typeof record !== "object"
+        ) {
+            continue;
+        }
+
 
         const fields = [
             record.Number,
@@ -148,35 +218,40 @@ function findInterpretation(ghazalNumber) {
         for (const value of fields) {
 
             if (
-                value !== undefined &&
-                value !== null &&
-                String(value).trim() !== ""
+                value === undefined ||
+                value === null ||
+                String(value).trim() === ""
             ) {
+                continue;
+            }
 
-                const number = Number(value);
 
-                if (
-                    Number.isInteger(number) &&
-                    number === ghazalNumber
-                ) {
-                    return getInterpretationText(record);
-                }
+            const number =
+                Number(value);
+
+
+            if (
+                Number.isInteger(number) &&
+                number === ghazalNumber
+            ) {
+                return getInterpretationText(record);
             }
         }
     }
 
 
-    /*
-     * اگر شمارهٔ غزل داخل رکورد تعبیر نباشد،
-     * ترتیب رکوردها را به عنوان شمارهٔ غزل در نظر می‌گیریم.
-     */
+    /* اگر شماره داخل رکورد نبود،
+       ترتیب رکوردها را ملاک می‌گیریم */
 
-    const index = ghazalNumber - 1;
+    const index =
+        ghazalNumber - 1;
+
 
     if (
         index >= 0 &&
         index < interpretations.length
     ) {
+
         return getInterpretationText(
             interpretations[index]
         );
@@ -188,20 +263,20 @@ function findInterpretation(ghazalNumber) {
 
 
 /* =========================
-   ساخت لینک صوت فریدون فرح‌اندوز
+   ساخت لینک صوت
 ========================= */
 
 function getAudioUrl(record) {
 
     /*
-     * فقط و فقط مقدار Audio از بانک اصلی خوانده می‌شود.
+     * Audio واقعی از HafezFilebot.json
      *
      * مثال:
      *
-     * Audio:
      * https://i.ganjoor.net/a/2237.ogg
      *
      * تبدیل:
+     *
      * https://i.ganjoor.net/a/2237-ff.mp3
      */
 
@@ -211,12 +286,17 @@ function getAudioUrl(record) {
 
 
     if (!audio) {
+        console.warn(
+            "[AUDIO] Audio field is empty",
+            record
+        );
+
         return "";
     }
 
 
     /*
-     * شناسه فایل را از انتهای URL استخراج می‌کنیم.
+     * شناسه را از خود Audio استخراج می‌کنیم.
      */
 
     const match =
@@ -226,8 +306,9 @@ function getAudioUrl(record) {
 
 
     if (!match) {
+
         console.warn(
-            "[AUDIO] Cannot extract audio ID:",
+            "[AUDIO] Invalid Audio URL:",
             audio
         );
 
@@ -235,7 +316,8 @@ function getAudioUrl(record) {
     }
 
 
-    const audioId = match[1];
+    const audioId =
+        match[1];
 
 
     const finalUrl =
@@ -243,10 +325,7 @@ function getAudioUrl(record) {
 
 
     console.log(
-        "[AUDIO]",
-        audio,
-        "=>",
-        finalUrl
+        `[AUDIO] ${audio} -> ${finalUrl}`
     );
 
 
@@ -255,7 +334,7 @@ function getAudioUrl(record) {
 
 
 /* =========================
-   انتخاب غزل تصادفی
+   انتخاب فال
 ========================= */
 
 function getRandomGhazal() {
@@ -315,43 +394,63 @@ function showFortune() {
 
 
     if (!record) {
-        alert("امکان دریافت فال وجود ندارد.");
+
+        alert(
+            "امکان دریافت فال وجود ندارد."
+        );
+
         return;
     }
 
 
     const titleElement =
-        document.getElementById("poemTitle");
+        document.getElementById(
+            "poemTitle"
+        );
+
 
     const poemElement =
-        document.getElementById("poemText");
+        document.getElementById(
+            "poemText"
+        );
+
 
     const sourceElement =
-        document.getElementById("poemSource");
+        document.getElementById(
+            "poemSource"
+        );
+
 
     const interpretationElement =
-        document.getElementById("interpretation");
+        document.getElementById(
+            "interpretation"
+        );
+
 
     const audioPlayer =
-        document.getElementById("audioPlayer");
+        document.getElementById(
+            "audioPlayer"
+        );
 
 
-    /* عنوان */
+    /* ---------- عنوان ---------- */
 
     titleElement.textContent =
         record.Title || "فال حافظ";
 
 
-    /* شعر */
+    /* ---------- شعر ---------- */
 
     poemElement.textContent =
         record.Poem || "";
 
 
-    /* منبع */
+    /* ---------- منبع ---------- */
 
     const source =
-        String(record.Source || "").trim();
+        String(
+            record.Source || ""
+        ).trim();
 
 
     sourceElement.textContent =
@@ -360,7 +459,7 @@ function showFortune() {
             : "";
 
 
-    /* تعبیر */
+    /* ---------- تعبیر ---------- */
 
     const ghazalNumber =
         getGhazalNumber(record);
@@ -377,7 +476,7 @@ function showFortune() {
         "تعبیر این فال در بانک موجود نیست.";
 
 
-    /* صوت */
+    /* ---------- صوت ---------- */
 
     audioPlayer.pause();
 
@@ -388,6 +487,16 @@ function showFortune() {
 
     const audioUrl =
         getAudioUrl(record);
+
+
+    console.log(
+        "[FORTUNE]",
+        {
+            recordId: record.record_id,
+            ghazalNumber: ghazalNumber,
+            audioUrl: audioUrl
+        }
+    );
 
 
     if (audioUrl) {
@@ -407,9 +516,11 @@ function showFortune() {
     }
 
 
-    /* نمایش فال */
+    /* ---------- نمایش ---------- */
 
-    showScreen("fortuneScreen");
+    showScreen(
+        "fortuneScreen"
+    );
 }
 
 
@@ -426,13 +537,15 @@ document.addEventListener(
                 "fortuneButton"
             );
 
+
         const newFortuneButton =
             document.getElementById(
                 "newFortuneButton"
             );
 
 
-        fortuneButton.disabled = true;
+        fortuneButton.disabled =
+            true;
 
 
         try {
@@ -442,10 +555,6 @@ document.addEventListener(
             fortuneButton.disabled =
                 false;
 
-
-            console.log(
-                `[DATA] Loaded ${ghazals.length} ghazals`
-            );
 
         } catch (error) {
 
