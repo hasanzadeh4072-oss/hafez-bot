@@ -367,17 +367,11 @@ function getInterpretation(record) {
         const possibleFields = [
 
             "ghazal_number",
-
             "GhazalNumber",
-
             "ghazal",
-
             "number",
-
             "Number",
-
             "id",
-
             "ID"
         ];
 
@@ -472,7 +466,7 @@ function cleanPoem(poem) {
 
 
 /* ==================================
-Audio URL
+Audio
 ================================== */
 
 function getDirectAudio(record) {
@@ -488,8 +482,114 @@ function getDirectAudio(record) {
 
 
 /* ==================================
-Audio URL Extraction
-همان منطق بات
+Reset Audio
+================================== */
+
+function resetAudioPlayer() {
+
+    audioPlayer.pause();
+
+    audioPlayer.removeAttribute(
+        "src"
+    );
+
+    audioPlayer.removeAttribute(
+        "type"
+    );
+
+    audioPlayer.style.display =
+        "none";
+
+    audioPlayer.load();
+}
+
+
+/* ==================================
+Test Audio URL
+================================== */
+
+function testAudioUrl(url) {
+
+    return new Promise(
+        resolve => {
+
+            if (!url) {
+                resolve(false);
+                return;
+            }
+
+            const testAudio =
+                document.createElement(
+                    "audio"
+                );
+
+            let finished = false;
+
+            const finish =
+                result => {
+
+                    if (finished) {
+                        return;
+                    }
+
+                    finished = true;
+
+                    testAudio.removeAttribute(
+                        "src"
+                    );
+
+                    testAudio.load();
+
+                    resolve(result);
+                };
+
+
+            testAudio.preload =
+                "metadata";
+
+
+            testAudio.onloadedmetadata =
+                () => {
+
+                    console.log(
+                        "[AUDIO TEST] OK:",
+                        url
+                    );
+
+                    finish(true);
+                };
+
+
+            testAudio.onerror =
+                () => {
+
+                    console.warn(
+                        "[AUDIO TEST] FAILED:",
+                        url
+                    );
+
+                    finish(false);
+                };
+
+
+            testAudio.src =
+                url;
+
+
+            testAudio.load();
+
+
+            setTimeout(
+                () => finish(false),
+                8000
+            );
+        }
+    );
+}
+
+
+/* ==================================
+Extract Audio URLs
 ================================== */
 
 function extractAudioUrls(
@@ -501,8 +601,9 @@ function extractAudioUrls(
 
     const absoluteUrls =
         html.match(
-            /https?:\/\/[^"'>\s]+?\.(?:ogg|mp3)(?:\?[^"'>\s]*)?/gi
+            /https?:\/\/[^"'<>\\s]+?\.(?:ogg|mp3)(?:\?[^"'<>\\s]*)?/gi
         ) || [];
+
 
     for (
         let url
@@ -521,28 +622,23 @@ function extractAudioUrls(
     }
 
 
-    const relativeUrls =
-        html.match(
-            /["']([^"']+\.(?:ogg|mp3)(?:\?[^"]*)?)["']/gi
-        ) || [];
+    const relativeRegex =
+        /["']([^"']+\.(?:ogg|mp3)(?:\?[^"]*)?)["']/gi;
 
 
-    for (
-        const match
-        of relativeUrls
+    let match;
+
+    while (
+        (match =
+            relativeRegex.exec(html)) !==
+        null
     ) {
-
-        const extracted =
-            match.substring(
-                1,
-                match.length - 1
-            );
 
         try {
 
             candidates.push(
                 new URL(
-                    extracted,
+                    match[1],
                     baseUrl
                 ).href
             );
@@ -550,29 +646,24 @@ function extractAudioUrls(
         } catch (error) {
 
             console.warn(
-                "[AUDIO] Invalid relative URL:",
-                extracted
+                "[AUDIO] Invalid URL:",
+                match[1]
             );
         }
     }
 
 
-    const unique = [];
+    const unique =
+        [...new Set(candidates)];
 
-    const seen = new Set();
 
-    for (
-        const url
-        of candidates
-    ) {
-
-        if (!seen.has(url)) {
-
-            seen.add(url);
-
-            unique.push(url);
-        }
-    }
+    const ogg =
+        unique.filter(
+            url =>
+                /\.ogg(?:\?|$)/i.test(
+                    url
+                )
+        );
 
 
     const ganjoor =
@@ -586,20 +677,27 @@ function extractAudioUrls(
         );
 
 
-    if (ganjoor.length) {
-        return ganjoor;
-    }
+    const rest =
+        unique.filter(
+            url =>
+                !ogg.includes(url) &&
+                !ganjoor.includes(url)
+        );
 
 
-    return unique;
+    return [
+        ...ganjoor,
+        ...ogg,
+        ...rest
+    ];
 }
 
 
 /* ==================================
-Resolve Audio From Source
+Find Audio From Source
 ================================== */
 
-async function resolveAudioFromSource(
+async function findAudioFromSource(
     sourceUrl
 ) {
 
@@ -607,10 +705,11 @@ async function resolveAudioFromSource(
         return "";
     }
 
+
     try {
 
         console.log(
-            "[AUDIO] Resolving source:",
+            "[AUDIO] Trying Source:",
             sourceUrl
         );
 
@@ -624,7 +723,7 @@ async function resolveAudioFromSource(
         if (!response.ok) {
 
             console.warn(
-                "[AUDIO] Source page status:",
+                "[AUDIO] Source HTTP:",
                 response.status
             );
 
@@ -643,64 +742,33 @@ async function resolveAudioFromSource(
             );
 
 
-        if (!candidates.length) {
-
-            console.warn(
-                "[AUDIO] No audio URL found."
-            );
-
-            return "";
-        }
-
-
-        const oggCandidates =
-            candidates.filter(
-                url =>
-                    url
-                        .toLowerCase()
-                        .includes(".ogg")
-            );
-
-
-        const orderedCandidates = [
-
-            ...oggCandidates,
-
-            ...candidates.filter(
-                url =>
-                    !oggCandidates.includes(
-                        url
-                    )
-            )
-        ];
+        console.log(
+            "[AUDIO] Candidates:",
+            candidates
+        );
 
 
         for (
-            const candidate
-            of orderedCandidates
+            const url
+            of candidates
         ) {
 
-            console.log(
-                "[AUDIO] Candidate:",
-                candidate
-            );
+            const valid =
+                await testAudioUrl(
+                    url
+                );
 
 
-            /*
-             * برخلاف بات، اینجا فایل را دانلود نمی‌کنیم.
-             *
-             * فقط URL مناسب را برای
-             * HTML5 Audio برمی‌گردانیم.
-             */
+            if (valid) {
 
-            return candidate;
+                return url;
+            }
         }
-
 
     } catch (error) {
 
         console.error(
-            "[AUDIO] Resolve error:",
+            "[AUDIO] Source error:",
             error
         );
     }
@@ -711,22 +779,12 @@ async function resolveAudioFromSource(
 
 
 /* ==================================
-Resolve Final Audio
+Resolve Audio
 ================================== */
 
-async function resolveFinalAudioUrl(
+async function resolveAudio(
     record
 ) {
-
-    if (!record) {
-        return "";
-    }
-
-
-    /*
-     * اول Audio موجود در
-     * HafezFilebot.json
-     */
 
     const directAudio =
         getDirectAudio(
@@ -734,23 +792,39 @@ async function resolveFinalAudioUrl(
         );
 
 
+    /*
+     * اول Audio داخل JSON را تست می‌کنیم.
+     */
+
     if (directAudio) {
 
         console.log(
-            "[AUDIO] Using Audio field:",
+            "[AUDIO] Testing JSON Audio:",
             directAudio
         );
 
-        return directAudio;
+
+        const directWorks =
+            await testAudioUrl(
+                directAudio
+            );
+
+
+        if (directWorks) {
+
+            return directAudio;
+        }
+
+
+        console.warn(
+            "[AUDIO] JSON Audio failed."
+        );
     }
 
 
     /*
-     * اگر Audio خالی بود،
-     * از Source غزل استفاده می‌کنیم.
-     *
-     * این همان fallback اصلی
-     * بات است.
+     * اگر لینک مستقیم کار نکرد،
+     * Source را بررسی می‌کنیم.
      */
 
     const source =
@@ -762,16 +836,12 @@ async function resolveFinalAudioUrl(
     if (source) {
 
         const resolved =
-            await resolveAudioFromSource(
+            await findAudioFromSource(
                 source
             );
 
-        if (resolved) {
 
-            console.log(
-                "[AUDIO] Resolved from Source:",
-                resolved
-            );
+        if (resolved) {
 
             return resolved;
         }
@@ -779,30 +849,6 @@ async function resolveFinalAudioUrl(
 
 
     return "";
-}
-
-
-/* ==================================
-Reset Audio Player
-================================== */
-
-function resetAudioPlayer() {
-
-    try {
-        audioPlayer.pause();
-    } catch (error) {
-        console.warn(
-            "[AUDIO] Pause error:",
-            error
-        );
-    }
-
-    audioPlayer.removeAttribute(
-        "src"
-    );
-
-    audioPlayer.style.display =
-        "none";
 }
 
 
@@ -816,7 +862,7 @@ async function showAudio(record) {
 
 
     const audioUrl =
-        await resolveFinalAudioUrl(
+        await resolveAudio(
             record
         );
 
@@ -824,7 +870,7 @@ async function showAudio(record) {
     if (!audioUrl) {
 
         console.warn(
-            "[AUDIO] No audio URL available."
+            "[AUDIO] No playable audio found."
         );
 
         return;
@@ -832,7 +878,7 @@ async function showAudio(record) {
 
 
     console.log(
-        "[AUDIO] Final URL:",
+        "[AUDIO] PLAYABLE URL:",
         audioUrl
     );
 
@@ -845,20 +891,19 @@ async function showAudio(record) {
         "block";
 
 
-    /*
-     * اینجا عمداً play() نمی‌کنیم.
-     * پخش خودکار ممکن است توسط WebView
-     * مسدود شود.
-     */
-
     audioPlayer.load();
 
 
     audioPlayer.onerror =
-        function () {
+        event => {
 
             console.error(
-                "[AUDIO] Browser could not load:",
+                "[AUDIO] Playback error:",
+                event
+            );
+
+            console.error(
+                "[AUDIO] URL:",
                 audioUrl
             );
         };
@@ -950,16 +995,10 @@ async function showFortune() {
         "متن غزل موجود نیست.";
 
 
-    if (source) {
-
-        poemSource.textContent =
-            `منبع: ${source}`;
-
-    } else {
-
-        poemSource.textContent =
-            "";
-    }
+    poemSource.textContent =
+        source
+            ? `منبع: ${source}`
+            : "";
 
 
     interpretation.textContent =
@@ -986,8 +1025,7 @@ async function showFortune() {
 
 
     /*
-     * صوت را بعد از نمایش فال
-     * به صورت مستقل آماده می‌کنیم.
+     * آماده‌سازی صوت
      */
 
     await showAudio(
@@ -1034,9 +1072,14 @@ loadData()
             error
         );
 
+
         fortuneButton.disabled =
             true;
+
 
         fortuneButton.textContent =
             "خطا در بارگذاری اطلاعات فال";
     });
+
+
+
