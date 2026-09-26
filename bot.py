@@ -1,8 +1,22 @@
-import os, random, time, threading, requests, uuid, io, cairosvg
+import os
+import json
+import random
+import time
+import threading
+import re
+from collections import OrderedDict
+from urllib.parse import urljoin
+
+import requests
 from flask import Flask, request
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
+
 
 app = Flask(__name__)
+
+
+# ==================================
+# Configuration
+# ==================================
 
 TOKEN = os.environ.get("SOROUSH_TOKEN")
 
@@ -10,1585 +24,1823 @@ if not TOKEN:
     raise RuntimeError("SOROUSH_TOKEN environment variable is not set.")
 
 API = f"https://api.splus.ir/bot{TOKEN}"
+
+WEBHOOK_URL = "https://hafez-bot.onrender.com/webhook"
+DATA_FILE = "HafezFilebot.json"
+TABIR_FILE = "Hafez_Tabir.json"
+
 CHANNEL_URL = "https://splus.ir/life_m23"
 
-W = H = 1080
-S = 2
-RW = RH = W * S
+POETRY_CARD_BOT_URL = "http://splus.ir/PoetryCardBot"
+ANONYMOUS_BOT_URL = "http://splus.ir/PayamNashenasBot"
 
-POEM_FONT = "Parastoo[wght].ttf"
-TITLE_FONT = "BTitrBd.ttf"
-SUB_FONT = FOOT_FONT = "Vazirmatn-Regular.ttf"
+MAX_MESSAGE_LENGTH = 4000
 
-BG_URL = (
-    "https://raw.githubusercontent.com/"
-    "hasanzadeh4072-oss/Soroush-Poetry-Card-Bot/"
-    "be5859ec92836a14ef0ef28d82ca6c161959cb26/"
-    "tazhib-21-v1-t1-pub1-inkscape-plain.svg"
-)
-
-TIMEOUT = 120
-
-LINE_SPACING = 32
-BLANK_LINE_SPACING = 48
-
-PENDING = {}
-READY = {}
-TIMERS = {}
-
-LOCK = threading.RLock()
-HTTP = threading.local()
-FONT_CACHE = {}
-
-BG = None
-BACKGROUNDS = {}
-TEXTURE = None
-PANEL = None
-
-PALETTES = [
-    {
-        "name":"بنفش سلطنتی","top":(55,25,82),"middle":(32,21,53),"bottom":(13,10,25),
-        "glow1":(160,105,200,38),"glow2":(105,70,160,22),"glow3":(100,65,145,10),
-        "frame":(173,137,82),"frame_inner":(205,172,105),"text":(255,255,255),
-        "accent":(244,210,137),"subtitle":(205,191,168),"ornament":(145,112,68),
-        "panel_outline":(205,172,105,38),"side_line":(205,172,105,75),"side_dot":(205,172,105,100)
-    },
-    {
-        "name":"آبی شبانه","top":(18,39,76),"middle":(16,27,53),"bottom":(7,11,23),
-        "glow1":(75,115,185,32),"glow2":(50,80,150,22),"glow3":(55,85,140,10),
-        "frame":(165,140,83),"frame_inner":(200,170,103),"text":(255,255,255),
-        "accent":(239,210,139),"subtitle":(195,204,211),"ornament":(140,125,82),
-        "panel_outline":(190,170,110,38),"side_line":(200,175,110,75),"side_dot":(215,185,115,100)
-    },
-    {
-        "name":"شرابی","top":(76,19,37),"middle":(45,14,26),"bottom":(20,6,13),
-        "glow1":(175,70,90,35),"glow2":(135,45,65,20),"glow3":(130,45,60,10),
-        "frame":(174,133,72),"frame_inner":(205,169,98),"text":(255,255,255),
-        "accent":(241,210,139),"subtitle":(211,193,181),"ornament":(145,105,65),
-        "panel_outline":(195,155,95,38),"side_line":(200,160,100,75),"side_dot":(215,175,105,100)
-    },
-    {
-        "name":"فیروزه‌ای تیره","top":(10,61,67),"middle":(9,39,45),"bottom":(4,17,21),
-        "glow1":(55,155,165,34),"glow2":(35,110,125,20),"glow3":(40,120,130,10),
-        "frame":(172,145,91),"frame_inner":(205,177,112),"text":(255,255,255),
-        "accent":(224,199,132),"subtitle":(188,209,208),"ornament":(130,137,91),
-        "panel_outline":(185,170,110,38),"side_line":(185,175,110,75),"side_dot":(210,190,120,100)
-    },
-    {
-        "name":"سبز زمردی","top":(12,59,51),"middle":(13,38,35),"bottom":(5,18,17),
-        "glow1":(65,145,120,35),"glow2":(45,110,95,20),"glow3":(40,100,85,10),
-        "frame":(168,139,78),"frame_inner":(200,169,99),"text":(255,255,255),
-        "accent":(239,211,137),"subtitle":(194,207,197),"ornament":(140,118,70),
-        "panel_outline":(190,165,100,38),"side_line":(190,170,105,75),"side_dot":(210,180,110,100)
-    },
-    {
-        "name":"رزگلد","top":(72,35,48),"middle":(45,23,32),"bottom":(19,9,14),
-        "glow1":(190,105,120,32),"glow2":(150,75,95,20),"glow3":(135,70,85,10),
-        "frame":(181,125,119),"frame_inner":(218,165,154),"text":(255,255,255),
-        "accent":(235,181,163),"subtitle":(216,194,187),"ornament":(164,112,106),
-        "panel_outline":(215,160,150,38),"side_line":(210,155,145,75),"side_dot":(225,170,158,100)
-    },
-    {
-        "name":"کرم","top":(250,239,210),"middle":(242,226,190),"bottom":(226,205,163),
-        "glow1":(255,252,230,55),"glow2":(255,240,185,28),"glow3":(255,255,255,22),
-        "frame":(91,67,39),"frame_inner":(126,96,58),"text":(49,40,31),
-        "accent":(104,73,38),"subtitle":(77,61,43),"ornament":(113,80,42),
-        "panel_outline":(105,78,43,55),"side_line":(105,78,43,85),"side_dot":(94,67,35,125)
-    },
-    {
-        "name":"آبی روشن","top":(205,235,248),"middle":(180,220,238),"bottom":(153,201,225),
-        "glow1":(235,249,255,58),"glow2":(145,205,235,28),"glow3":(255,255,255,24),
-        "frame":(43,73,91),"frame_inner":(72,105,124),"text":(31,51,63),
-        "accent":(48,82,101),"subtitle":(54,77,91),"ornament":(59,91,108),
-        "panel_outline":(58,91,110,55),"side_line":(58,91,110,85),"side_dot":(46,79,99,125)
-    },
-    {
-        "name":"مریم‌گلی","top":(218,231,205),"middle":(201,219,184),"bottom":(179,201,159),
-        "glow1":(242,249,230,58),"glow2":(175,205,145,28),"glow3":(255,255,255,24),
-        "frame":(60,76,52),"frame_inner":(91,108,78),"text":(39,54,35),
-        "accent":(67,88,55),"subtitle":(67,82,59),"ornament":(75,96,62),
-        "panel_outline":(73,96,62,55),"side_line":(73,96,62,85),"side_dot":(62,84,52,125)
-    }
-]
+CONNECT_TIMEOUT = 5
+READ_TIMEOUT = 15
+REQUEST_TIMEOUT = (CONNECT_TIMEOUT, READ_TIMEOUT)
 
 
-def session():
-    s = getattr(HTTP, "s", None)
+# ==================================
+# About
+# ==================================
 
-    if s is None:
-        s = requests.Session()
+ABOUT_TEXT = """🌿 درباره ما
 
-        adapter = requests.adapters.HTTPAdapter(
-            pool_connections=20,
-            pool_maxsize=20,
-            max_retries=0
-        )
+از سال ۱۳۹۵ با کانال «شعرکده» در پیام‌رسان سروش پلاس همراه شما هستیم.
 
-        s.mount("http://", adapter)
-        s.mount("https://", adapter)
+در «شعرکده» بخش‌های متنوعی از جمله:
+📜 شعر
+📖 برگی از کتاب
+🎬 دیالوگ ماندگار
+💬 بگو مگو
+🪶 ضرب‌المثل
+🎵 موزیک‌گردی
+🇮🇷 ایران زیبا
+را با شما به اشتراک می‌گذاریم.
 
-        HTTP.s = s
+خوشحال می‌شویم پذیرای شما در کانال <a href="https://splus.ir/life_m23">شعرکده</a> باشیم. 🌱
 
-    return s
-
-
-class D:
-    def __init__(self, image):
-        self.image = image
-        self.draw = ImageDraw.Draw(image)
-
-    def p(self, point):
-        return tuple(int(round(v * S)) for v in point)
-
-    def b(self, box):
-        return tuple(int(round(v * S)) for v in box)
-
-    def text(self, xy, text, font, **kwargs):
-        return self.draw.text(
-            self.p(xy),
-            text,
-            font=font,
-            **kwargs
-        )
-
-    def bbox(self, xy, text, font, **kwargs):
-        b = self.draw.textbbox(
-            self.p(xy),
-            text,
-            font=font,
-            **kwargs
-        )
-
-        return tuple(v / S for v in b)
-
-    def line(self, xy, **kwargs):
-        if "width" in kwargs:
-            kwargs["width"] = max(
-                1,
-                int(round(kwargs["width"] * S))
-            )
-
-        return self.draw.line(
-            [self.p(x) for x in xy],
-            **kwargs
-        )
-
-    def rr(self, box, **kwargs):
-        if "radius" in kwargs:
-            kwargs["radius"] = int(
-                round(kwargs["radius"] * S)
-            )
-
-        if "width" in kwargs:
-            kwargs["width"] = max(
-                1,
-                int(round(kwargs["width"] * S))
-            )
-
-        return self.draw.rounded_rectangle(
-            self.b(box),
-            **kwargs
-        )
-
-    def ellipse(self, box, **kwargs):
-        return self.draw.ellipse(
-            self.b(box),
-            **kwargs
-        )
-
-    def polygon(self, points, **kwargs):
-        return self.draw.polygon(
-            [self.p(x) for x in points],
-            **kwargs
-        )
+🔗 <a href="https://splus.ir/life_m23">لینک کانال شعرکده</a>"""
 
 
-def get_font(name, size):
-    key = (
-        name,
-        int(round(size * S))
+# ==================================
+# Audio Cache
+# ==================================
+
+AUDIO_CACHE_MAX_ITEMS = 5
+AUDIO_CACHE_MAX_BYTES = 50 * 1024 * 1024
+AUDIO_NEGATIVE_CACHE_TTL = 10 * 60
+AUDIO_URL_CACHE_TTL = 60 * 60
+
+_AUDIO_CACHE = OrderedDict()
+_AUDIO_CACHE_BYTES = 0
+_AUDIO_CACHE_LOCK = threading.RLock()
+
+_AUDIO_DOWNLOAD_LOCKS = {}
+_AUDIO_DOWNLOAD_LOCKS_GUARD = threading.Lock()
+
+_AUDIO_NEGATIVE_CACHE = {}
+_AUDIO_NEGATIVE_LOCK = threading.Lock()
+
+_AUDIO_URL_CACHE = {}
+_AUDIO_URL_CACHE_LOCK = threading.Lock()
+
+_AUDIO_RESOLVE_LOCKS = {}
+_AUDIO_RESOLVE_LOCKS_GUARD = threading.Lock()
+
+_THREAD_LOCAL = threading.local()
+
+
+def get_session():
+    session = getattr(
+        _THREAD_LOCAL,
+        "session",
+        None
     )
 
-    if key in FONT_CACHE:
-        return FONT_CACHE[key]
+    if session is None:
 
-    f = ImageFont.truetype(
-        name,
-        key[1]
+        session = requests.Session()
+
+        session.headers.update({
+            "User-Agent": (
+                "Mozilla/5.0 "
+                "(compatible; HafezBot/1.0)"
+            )
+        })
+
+        _THREAD_LOCAL.session = session
+
+    return session
+
+
+def get_audio_download_lock(audio_url):
+
+    with _AUDIO_DOWNLOAD_LOCKS_GUARD:
+
+        lock = _AUDIO_DOWNLOAD_LOCKS.get(
+            audio_url
+        )
+
+        if lock is None:
+
+            lock = threading.Lock()
+
+            _AUDIO_DOWNLOAD_LOCKS[
+                audio_url
+            ] = lock
+
+        return lock
+
+
+def get_audio_resolve_lock(source_url):
+
+    with _AUDIO_RESOLVE_LOCKS_GUARD:
+
+        lock = _AUDIO_RESOLVE_LOCKS.get(
+            source_url
+        )
+
+        if lock is None:
+
+            lock = threading.Lock()
+
+            _AUDIO_RESOLVE_LOCKS[
+                source_url
+            ] = lock
+
+        return lock
+
+
+# ==================================
+# Fortune Per-Chat Locks
+# ==================================
+
+# هر کاربر/چت قفل مستقل خودش را دارد.
+# بنابراین دو فال همزمان برای یک چت اجرا نمی‌شود،
+# اما کاربران مختلف روی یکدیگر اثر نمی‌گذارند.
+
+_FORTUNE_LOCKS = {}
+_FORTUNE_LOCKS_GUARD = threading.Lock()
+
+
+def get_fortune_lock(chat_id):
+
+    chat_key = str(chat_id)
+
+    with _FORTUNE_LOCKS_GUARD:
+
+        lock = _FORTUNE_LOCKS.get(
+            chat_key
+        )
+
+        if lock is None:
+
+            lock = threading.Lock()
+
+            _FORTUNE_LOCKS[
+                chat_key
+            ] = lock
+
+        return lock
+
+
+# ==================================
+# Audio Cache Functions
+# ==================================
+
+def audio_cache_get(audio_url):
+
+    global _AUDIO_CACHE_BYTES
+
+    with _AUDIO_CACHE_LOCK:
+
+        item = _AUDIO_CACHE.get(
+            audio_url
+        )
+
+        if item is None:
+            return None
+
+        data, created_at = item
+
+        _AUDIO_CACHE.move_to_end(
+            audio_url
+        )
+
+        return data
+
+
+def audio_cache_put(
+    audio_url,
+    data
+):
+
+    global _AUDIO_CACHE_BYTES
+
+    if not data:
+        return
+
+    data_size = len(data)
+
+    if data_size > AUDIO_CACHE_MAX_BYTES:
+        return
+
+    with _AUDIO_CACHE_LOCK:
+
+        old = _AUDIO_CACHE.pop(
+            audio_url,
+            None
+        )
+
+        if old is not None:
+
+            _AUDIO_CACHE_BYTES -= len(
+                old[0]
+            )
+
+        _AUDIO_CACHE[audio_url] = (
+            data,
+            time.time()
+        )
+
+        _AUDIO_CACHE_BYTES += data_size
+
+        while (
+            len(_AUDIO_CACHE) > AUDIO_CACHE_MAX_ITEMS
+            or _AUDIO_CACHE_BYTES > AUDIO_CACHE_MAX_BYTES
+        ):
+
+            _, old_item = _AUDIO_CACHE.popitem(
+                last=False
+            )
+
+            _AUDIO_CACHE_BYTES -= len(
+                old_item[0]
+            )
+
+
+def negative_cache_get(audio_url):
+
+    now = time.time()
+
+    with _AUDIO_NEGATIVE_LOCK:
+
+        timestamp = _AUDIO_NEGATIVE_CACHE.get(
+            audio_url
+        )
+
+        if timestamp is None:
+            return False
+
+        if (
+            now - timestamp
+            > AUDIO_NEGATIVE_CACHE_TTL
+        ):
+
+            del _AUDIO_NEGATIVE_CACHE[
+                audio_url
+            ]
+
+            return False
+
+        return True
+
+
+def negative_cache_put(audio_url):
+
+    with _AUDIO_NEGATIVE_LOCK:
+
+        _AUDIO_NEGATIVE_CACHE[
+            audio_url
+        ] = time.time()
+
+
+def audio_url_cache_get(source_url):
+
+    now = time.time()
+
+    with _AUDIO_URL_CACHE_LOCK:
+
+        item = _AUDIO_URL_CACHE.get(
+            source_url
+        )
+
+        if item is None:
+            return None
+
+        audio_url, timestamp = item
+
+        if (
+            now - timestamp
+            > AUDIO_URL_CACHE_TTL
+        ):
+
+            del _AUDIO_URL_CACHE[
+                source_url
+            ]
+
+            return None
+
+        return audio_url
+
+
+def audio_url_cache_put(
+    source_url,
+    audio_url
+):
+
+    with _AUDIO_URL_CACHE_LOCK:
+
+        _AUDIO_URL_CACHE[
+            source_url
+        ] = (
+            audio_url,
+            time.time()
+        )
+
+
+# ==================================
+# Keyboards
+# ==================================
+
+MAIN_KEYBOARD = {
+    "keyboard": [
+        [
+            {
+                "text": "📜 فال حافظ"
+            }
+        ],
+        [
+            {
+                "text": "🎨 ساختن کارت شعر"
+            },
+            {
+                "text": "🌿 درباره ما"
+            }
+        ],
+        [
+            {
+                "text": "💬 ارتباط با مدیر"
+            },
+            {
+                "text": "📣 کانال شعرکده"
+            }
+        ]
+    ],
+    "resize_keyboard": True,
+    "one_time_keyboard": False
+}
+
+
+FORTUNE_KEYBOARD = {
+    "keyboard": [
+        [
+            {
+                "text": "🌿 یک فال دیگر"
+            }
+        ],
+        [
+            {
+                "text": "🎨 ساختن کارت شعر"
+            },
+            {
+                "text": "🌿 درباره ما"
+            }
+        ],
+        [
+            {
+                "text": "💬 ارتباط با مدیر"
+            },
+            {
+                "text": "📣 کانال شعرکده"
+            }
+        ]
+    ],
+    "resize_keyboard": True,
+    "one_time_keyboard": False
+}
+
+
+# ==================================
+# Data
+# ==================================
+
+HAZALS = []
+
+TABIR_MAP = {}
+
+
+# ==================================
+# API Success Helper
+# ==================================
+
+def api_success(result):
+
+    return (
+        isinstance(result, dict)
+        and result.get("ok") is True
     )
 
-    if name == POEM_FONT:
-        try:
-            axes = f.get_variation_axes()
 
-            for i, axis in enumerate(axes):
-                if axis.get("name", "").lower() == "weight":
+# ==================================
+# Interpretation Validation
+# ==================================
 
-                    values = [
-                        a.get(
-                            "default",
-                            a.get("min", 400)
-                        )
-                        for a in axes
-                    ]
+def is_valid_interpretation(
+    interpretation
+):
 
-                    values[i] = 400
-                    f.set_variation_by_axes(values)
+    if interpretation is None:
+        return False
 
-                    break
+    interpretation = str(
+        interpretation
+    ).strip()
 
-        except Exception:
-            pass
+    if not interpretation:
+        return False
 
-    FONT_CACHE[key] = f
+    normalized = interpretation.replace(
+        " ",
+        ""
+    )
 
-    return f
+    invalid_phrases = [
+        "برایاینغزل هنوزتعبیریثبتنشده",
+        "برایاینغزل هنوزتعبیری",
+        "تعبیریثبتنشده",
+        "تعبیرثبتنشده",
+        "هنوزتعبیریثبتنشده",
+    ]
+
+    for phrase in invalid_phrases:
+
+        if phrase in normalized:
+            return False
+
+    return True
 
 
-def load_background():
-    global BG
+# ==================================
+# Load Interpretations
+# ==================================
+
+def load_interpretations():
+
+    global TABIR_MAP
+
+    TABIR_MAP = {}
+
+    if not os.path.exists(
+        TABIR_FILE
+    ):
+
+        print(
+            f"[TABIR] File not found: "
+            f"{TABIR_FILE}"
+        )
+
+        return
 
     try:
-        response = session().get(
-            BG_URL,
-            timeout=30
-        )
 
-        response.raise_for_status()
+        with open(
+            TABIR_FILE,
+            "r",
+            encoding="utf-8"
+        ) as f:
 
-        png = cairosvg.svg2png(
-            bytestring=response.content,
-            output_width=4320
-        )
+            data = json.load(f)
 
-        image = Image.open(
-            io.BytesIO(png)
-        ).convert("RGBA")
+    except Exception as e:
 
-        ratio = image.width / image.height
-        target = RW / RH
-
-        if ratio > target:
-            nh = RH
-            nw = int(
-                image.width * RH / image.height
-            )
-        else:
-            nw = RW
-            nh = int(
-                image.height * RW / image.width
-            )
-
-        image = image.resize(
-            (nw, nh),
-            Image.Resampling.LANCZOS
-        )
-
-        x = (nw - RW) // 2
-        y = (nh - RH) // 2
-
-        image = image.crop(
-            (
-                x,
-                y,
-                x + RW,
-                y + RH
-            )
-        )
-
-        image = ImageEnhance.Brightness(
-            image
-        ).enhance(.48)
-
-        image = image.filter(
-            ImageFilter.GaussianBlur(4 * S)
-        )
-
-        image.putalpha(42)
-
-        BG = image
-
-    except Exception as error:
         print(
-            "Background error:",
-            error
+            "[TABIR] JSON load error:",
+            e
         )
 
+        return
 
-def build_texture():
-    global TEXTURE
+    if not isinstance(
+        data,
+        list
+    ):
 
-    if TEXTURE is not None:
-        return TEXTURE
-
-    with LOCK:
-
-        if TEXTURE is not None:
-            return TEXTURE
-
-        image = Image.new(
-            "RGBA",
-            (RW, RH),
-            (0, 0, 0, 0)
+        print(
+            "[TABIR] JSON root must be a list."
         )
 
-        pixels = image.load()
+        return
 
-        rng = random.Random(8)
+    total_records = len(data)
+    valid_records = 0
+    skipped_records = 0
 
-        for _ in range(56000):
+    print(
+        f"[TABIR] Total records: "
+        f"{total_records}"
+    )
 
-            pixels[
-                rng.randrange(RW),
-                rng.randrange(RH)
-            ] = rng.choice(
-                [
-                    (255,255,255,3),
-                    (0,0,0,4)
-                ]
+    for index, item in enumerate(
+        data,
+        start=1
+    ):
+
+        # اگر فایل تعبیر شماره غزل داشته باشد،
+        # همان شماره ملاک قرار می‌گیرد.
+        # در ساختار فعلی فایل، در صورت نبود شماره،
+        # ترتیب رکوردها حفظ می‌شود.
+
+        ghazal_number = None
+
+        if isinstance(
+            item,
+            dict
+        ):
+
+            possible_number_fields = (
+                "ghazal_number",
+                "GhazalNumber",
+                "ghazal",
+                "number",
+                "Number",
+                "id",
+                "ID"
             )
 
-        TEXTURE = image
+            for field in possible_number_fields:
 
-        return image
+                value = item.get(
+                    field
+                )
 
+                if value is not None:
 
-def make_background(p):
-    image = Image.new(
-        "RGB",
-        (1, RH)
-    )
+                    match = re.search(
+                        r"\d+",
+                        str(value)
+                    )
 
-    pixels = image.load()
+                    if match:
 
-    for y in range(RH):
+                        ghazal_number = (
+                            match.group(0)
+                        )
 
-        ratio = y / (RH - 1)
+                        break
 
-        if ratio < .52:
-            a = p["top"]
-            b = p["middle"]
-            t = ratio / .52
-        else:
-            a = p["middle"]
-            b = p["bottom"]
-            t = (ratio - .52) / .48
+        if not ghazal_number:
 
-        pixels[0, y] = tuple(
-            int(
-                a[i] * (1 - t) +
-                b[i] * t
+            ghazal_number = str(
+                index
             )
-            for i in range(3)
+
+        if not isinstance(
+            item,
+            dict
+        ):
+
+            skipped_records += 1
+
+            print(
+                f"[TABIR] Skipped record "
+                f"#{ghazal_number}: "
+                f"invalid record structure"
+            )
+
+            continue
+
+        interpretation = item.get(
+            "interpretation",
+            ""
         )
 
-    image = image.resize(
-        (RW, RH),
-        Image.Resampling.NEAREST
-    ).convert("RGBA")
+        interpretation = str(
+            interpretation
+        ).strip()
 
-    if BG is not None:
-        image = Image.alpha_composite(
-            image,
-            BG
+        if not is_valid_interpretation(
+            interpretation
+        ):
+
+            skipped_records += 1
+
+            print(
+                f"[TABIR] Skipped interpretation "
+                f"for ghazal #{ghazal_number}"
+            )
+
+            continue
+
+        TABIR_MAP[
+            str(ghazal_number)
+        ] = interpretation
+
+        valid_records += 1
+
+    print(
+        f"[TABIR] Valid interpretations: "
+        f"{valid_records}"
+    )
+
+    print(
+        f"[TABIR] Skipped records: "
+        f"{skipped_records}"
+    )
+
+    print(
+        f"[TABIR] Map size: "
+        f"{len(TABIR_MAP)}"
+    )
+
+
+def get_interpretation(record):
+
+    number = get_ghazal_number(
+        record
+    )
+
+    if not number:
+        return None
+
+    number = str(
+        number
+    ).strip()
+
+    interpretation = TABIR_MAP.get(
+        number
+    )
+
+    if is_valid_interpretation(
+        interpretation
+    ):
+
+        return interpretation
+
+    return None
+
+
+# ==================================
+# Load Hafez Data
+# ==================================
+
+def load_data():
+
+    global HAZALS
+
+    if not os.path.exists(
+        DATA_FILE
+    ):
+
+        raise FileNotFoundError(
+            f"Data file not found: "
+            f"{DATA_FILE}"
         )
 
-    glow = Image.new(
-        "RGBA",
-        (RW, RH),
-        (0, 0, 0, 0)
-    )
+    with open(
+        DATA_FILE,
+        "r",
+        encoding="utf-8"
+    ) as f:
 
-    d = ImageDraw.Draw(glow)
+        data = json.load(f)
 
-    d.ellipse(
-        (-260*S, -180*S, 650*S, 560*S),
-        fill=p["glow1"]
-    )
+    if not isinstance(
+        data,
+        list
+    ):
 
-    d.ellipse(
-        (690*S, 690*S, 1250*S, 1250*S),
-        fill=p["glow2"]
-    )
-
-    d.ellipse(
-        (250*S, 350*S, 850*S, 950*S),
-        fill=p["glow3"]
-    )
-
-    glow = glow.filter(
-        ImageFilter.GaussianBlur(110 * S)
-    )
-
-    image = Image.alpha_composite(
-        image,
-        glow
-    )
-
-    return Image.alpha_composite(
-        image,
-        build_texture()
-    ).convert("RGB")
-
-
-def build_panel():
-    global PANEL
-
-    panel = Image.new(
-        "RGBA",
-        (RW, RH),
-        (0, 0, 0, 0)
-    )
-
-    d = D(panel)
-
-    d.rr(
-        (100,164,980,896),
-        radius=45,
-        fill=(0,0,0,45)
-    )
-
-    d.rr(
-        (100,160,980,890),
-        radius=45,
-        fill=(255,255,255,24)
-    )
-
-    d.rr(
-        (110,170,970,880),
-        radius=37,
-        outline=(255,255,255,12),
-        width=1
-    )
-
-    PANEL = panel.filter(
-        ImageFilter.GaussianBlur(.35 * S)
-    )
-
-
-def initialize():
-    global BACKGROUNDS
-
-    load_background()
-    build_texture()
-
-    BACKGROUNDS = {
-        p["name"]: make_background(p)
-        for p in PALETTES
-    }
-
-    build_panel()
-
-
-initialize()
-
-
-def wrap_text(d, text, font_, max_width):
-    words = text.split()
-
-    if not words:
-        return []
-
-    lines = []
-
-    current = words[0]
-
-    for word in words[1:]:
-
-        candidate = current + " " + word
-
-        bbox = d.bbox(
-            (0,0),
-            candidate,
-            font_
+        raise ValueError(
+            "HafezFilebot.json must "
+            "contain a list."
         )
 
-        if bbox[2] - bbox[0] <= max_width:
-            current = candidate
-        else:
-            lines.append(current)
-            current = word
-
-    lines.append(current)
-
-    return lines
-
-
-def prepare_lines(d, text, font_, max_width):
     result = []
 
-    for raw in text.replace("…", "...").splitlines():
+    for item in data:
 
-        if not raw.strip():
-            result.append(None)
+        if not isinstance(
+            item,
+            dict
+        ):
             continue
 
-        result.extend(
-            wrap_text(
-                d,
-                raw.strip(),
-                font_,
-                max_width
-            )
-        )
+        for record_id, record in item.items():
 
-    return result
+            if not isinstance(
+                record,
+                dict
+            ):
+                continue
+
+            poem = str(
+                record.get(
+                    "Poem",
+                    ""
+                )
+            ).strip()
+
+            if not poem:
+                continue
+
+            title = str(
+                record.get(
+                    "Title",
+                    ""
+                )
+            ).strip()
+
+            source = str(
+                record.get(
+                    "Source",
+                    ""
+                )
+            ).strip()
+
+            audio = str(
+                record.get(
+                    "Audio",
+                    ""
+                )
+            ).strip()
+
+            author = str(
+                record.get(
+                    "Author",
+                    "حافظ"
+                )
+            ).strip() or "حافظ"
+
+            book = str(
+                record.get(
+                    "Book",
+                    "غزلیات حافظ"
+                )
+            ).strip() or "غزلیات حافظ"
+
+            result.append({
+                "record_id": str(record_id),
+                "author": author,
+                "book": book,
+                "poem": poem,
+                "source": source,
+                "title": title,
+                "audio": audio
+            })
+
+    HAZALS = result
+
+    audio_count = sum(
+        1
+        for item in HAZALS
+        if item.get("audio")
+    )
+
+    print(
+        f"[DATA] Loaded {len(HAZALS)} ghazals "
+        f"with {audio_count} audio entries."
+    )
 
 
-def calculate_height(
-    d,
-    lines,
-    font_,
-    line_spacing=LINE_SPACING,
-    blank_spacing=BLANK_LINE_SPACING
-):
-    total = 0
+# ==================================
+# Soroush API
+# ==================================
 
-    for line in lines:
-
-        if line is None:
-            total += blank_spacing
-            continue
-
-        bbox = d.bbox(
-            (0,0),
-            line,
-            font_
-        )
-
-        total += (
-            bbox[3] - bbox[1] +
-            line_spacing
-        )
-
-    if lines and lines[-1] is not None:
-        total -= line_spacing
-
-    return total
-
-
-def api(
+def splus_request(
     method,
     data=None,
-    files=None,
-    timeout=20
+    files=None
 ):
+
+    url = f"{API}/{method}"
+
+    start_time = time.time()
+
     try:
-        return session().post(
-            f"{API}/{method}",
-            json=data if files is None else None,
-            data=data if files is not None else None,
-            files=files,
-            timeout=timeout
+
+        print(
+            f"[API] START {method}"
         )
 
-    except Exception as error:
+        response = get_session().post(
+            url,
+            data=data,
+            files=files,
+            timeout=REQUEST_TIMEOUT
+        )
+
+        try:
+
+            elapsed = time.time() - start_time
+
+            print(
+                f"[API] END {method} "
+                f"status={response.status_code} "
+                f"time={elapsed:.3f}s"
+            )
+
+            try:
+
+                return response.json()
+
+            except Exception:
+
+                print(
+                    "[API] Non-JSON response:",
+                    response.text[:500]
+                )
+
+                return {
+                    "ok": response.ok,
+                    "status_code": response.status_code,
+                    "text": response.text
+                }
+
+        finally:
+
+            response.close()
+
+    except Exception as e:
+
+        elapsed = time.time() - start_time
+
         print(
-            f"{method} error:",
-            error
+            f"[API] ERROR {method} "
+            f"time={elapsed:.3f}s "
+            f"error={e}"
         )
 
         return None
-
-
-def send_message(
-    chat_id,
-    text,
-    markup=None
-):
-    data = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML"
-    }
-
-    if markup is not None:
-        data["reply_markup"] = markup
-
-    return api(
-        "sendMessage",
-        data
-    )
 
 
 def delete_message(
     chat_id,
     message_id
 ):
-    return api(
+
+    return splus_request(
         "deleteMessage",
-        {
+        data={
             "chat_id": chat_id,
             "message_id": message_id
         }
     )
 
 
-def send_photo(
+def send_message(
     chat_id,
-    filename
-):
-    try:
-        with open(
-            filename,
-            "rb"
-        ) as photo:
-
-            return api(
-                "sendPhoto",
-                {
-                    "chat_id": chat_id
-                },
-                {
-                    "photo": (
-                        "poetry_card.png",
-                        photo,
-                        "image/png"
-                    )
-                },
-                60
-            )
-
-    except Exception as error:
-        print(
-            "sendPhoto error:",
-            error
-        )
-
-        return None
-
-
-def answer_callback(callback_id):
-    return api(
-        "answerCallbackQuery",
-        {
-            "callback_query_id": callback_id
-        }
-    )
-
-
-def expire_pending(
-    chat_id,
-    created_at
-):
-    with LOCK:
-
-        pending = PENDING.get(chat_id)
-
-        if not pending:
-            TIMERS.pop(
-                chat_id,
-                None
-            )
-            return
-
-        if pending.get("created_at") != created_at:
-            return
-
-        if time.time() - created_at >= TIMEOUT:
-
-            PENDING.pop(
-                chat_id,
-                None
-            )
-
-            TIMERS.pop(
-                chat_id,
-                None
-            )
-
-
-def store_pending(
-    chat_id,
-    poem
-):
-    created_at = time.time()
-
-    with LOCK:
-
-        old = TIMERS.pop(
-            chat_id,
-            None
-        )
-
-        if old:
-            old.cancel()
-
-        PENDING[chat_id] = {
-            "poem": poem,
-            "branded": True,
-            "created_at": created_at
-        }
-
-        timer = threading.Timer(
-            TIMEOUT,
-            expire_pending,
-            (
-                chat_id,
-                created_at
-            )
-        )
-
-        timer.daemon = True
-
-        TIMERS[chat_id] = timer
-
-        timer.start()
-
-
-def refresh_timeout(chat_id):
-    with LOCK:
-
-        pending = PENDING.get(chat_id)
-
-        if not pending:
-            return
-
-        old = TIMERS.pop(
-            chat_id,
-            None
-        )
-
-        if old:
-            old.cancel()
-
-        created_at = time.time()
-
-        pending["created_at"] = created_at
-
-        timer = threading.Timer(
-            TIMEOUT,
-            expire_pending,
-            (
-                chat_id,
-                created_at
-            )
-        )
-
-        timer.daemon = True
-
-        TIMERS[chat_id] = timer
-
-        timer.start()
-
-
-def remove_previous_ready(chat_id):
-    with LOCK:
-        message_id = READY.get(chat_id)
-
-    if not message_id:
-        return
-
-    response = delete_message(
-        chat_id,
-        message_id
-    )
-
-    if response is not None and response.ok:
-
-        with LOCK:
-
-            if READY.get(chat_id) == message_id:
-                READY.pop(
-                    chat_id,
-                    None
-                )
-
-
-def draw_ornament(
-    d,
-    p,
-    y
-):
-    center = W // 2
-    width = 150
-
-    d.line(
-        (
-            (center-width, y),
-            (center-12, y)
-        ),
-        fill=p["ornament"],
-        width=2
-    )
-
-    d.line(
-        (
-            (center+12, y),
-            (center+width, y)
-        ),
-        fill=p["ornament"],
-        width=2
-    )
-
-    d.polygon(
-        [
-            (center, y-5),
-            (center+5, y),
-            (center, y+5),
-            (center-5, y)
-        ],
-        fill=p["accent"]
-    )
-
-
-def create_card(
     text,
-    p,
-    branded=True
+    reply_markup=None
 ):
-    image = BACKGROUNDS[
-        p["name"]
-    ].copy().convert("RGBA")
 
-    d = D(image)
+    data = {
+        "chat_id": chat_id,
+        "text": text,
+        "disable_web_page_preview": "true",
+        "parse_mode": "HTML"
+    }
 
-    d.rr(
-        (40,40,1040,1040),
-        radius=42,
-        outline=p["frame"],
-        width=3
-    )
+    if reply_markup is not None:
 
-    d.rr(
-        (49,49,1031,1031),
-        radius=35,
-        outline=p["frame_inner"],
-        width=2
-    )
-
-    title_font = get_font(
-        TITLE_FONT,
-        50
-    )
-
-    subtitle_font = get_font(
-        SUB_FONT,
-        23
-    )
-
-    footer_font = get_font(
-        FOOT_FONT,
-        23
-    )
-
-    title = "شعرکده"
-    subtitle = "( سروش پلاس )"
-    footer = "کارت شعر"
-
-    def size(value, f):
-        b = d.bbox(
-            (0,0),
-            value,
-            f
+        data["reply_markup"] = json.dumps(
+            reply_markup,
+            ensure_ascii=False
         )
 
-        return (
-            b[2]-b[0],
-            b[3]-b[1]
+    return splus_request(
+        "sendMessage",
+        data=data
+    )
+
+
+# ==================================
+# Message Helpers
+# ==================================
+
+def split_message(
+    text,
+    max_length=MAX_MESSAGE_LENGTH
+):
+
+    if len(text) <= max_length:
+        return [text]
+
+    chunks = []
+    remaining = text
+
+    while len(remaining) > max_length:
+
+        cut = remaining.rfind(
+            "\n",
+            0,
+            max_length
         )
 
-    tw, th = size(
-        title,
-        title_font
-    )
+        if cut < 0:
 
-    sw, sh = size(
-        subtitle,
-        subtitle_font
-    )
+            cut = remaining.rfind(
+                " ",
+                0,
+                max_length
+            )
 
-    fw, fh = size(
-        footer,
-        footer_font
-    )
+        if cut < 0:
 
-    center = W // 2
+            cut = max_length
 
-    footer_y = 78
-
-    footer_x = (
-        W - fw
-    ) // 2
-
-    title_y = (
-        H - 78 - th
-    )
-
-    title_x = center + 10
-
-    subtitle_x = (
-        title_x - sw - 20
-    )
-
-    subtitle_y = (
-        title_y +
-        (th-sh)//2 -
-        3
-    )
-
-    d.text(
-        (footer_x+1, footer_y+2),
-        footer,
-        font=footer_font,
-        fill=(0,0,0,60)
-    )
-
-    d.text(
-        (footer_x, footer_y),
-        footer,
-        font=footer_font,
-        fill=p["accent"]
-    )
-
-    draw_ornament(
-        d,
-        p,
-        footer_y + fh + 25
-    )
-
-    if branded:
-
-        d.text(
-            (title_x+2, title_y+3),
-            title,
-            font=title_font,
-            fill=(0,0,0,80)
+        chunks.append(
+            remaining[:cut].strip()
         )
 
-        d.text(
-            (title_x, title_y),
-            title,
-            font=title_font,
-            fill=p["accent"]
+        remaining = remaining[
+            cut:
+        ].strip()
+
+    if remaining:
+
+        chunks.append(
+            remaining
         )
 
-        d.text(
-            (subtitle_x, subtitle_y),
-            subtitle,
-            font=subtitle_font,
-            fill=p["subtitle"]
-        )
+    return chunks
 
-        draw_ornament(
-            d,
-            p,
-            title_y - 25
+
+# ==================================
+# Ghazal Number
+# ==================================
+
+def get_ghazal_number(record):
+
+    source = str(
+        record.get(
+            "source",
+            ""
+        )
+    )
+
+    match = re.search(
+        r"/sh(\d+)",
+        source,
+        re.IGNORECASE
+    )
+
+    if match:
+
+        return match.group(1)
+
+    title = str(
+        record.get(
+            "title",
+            ""
+        )
+    )
+
+    match = re.search(
+        r"\d+",
+        title
+    )
+
+    if match:
+
+        return match.group(0)
+
+    record_id = str(
+        record.get(
+            "record_id",
+            ""
+        )
+    )
+
+    match = re.search(
+        r"\d+",
+        record_id
+    )
+
+    if match:
+
+        return match.group(0)
+
+    return record_id or "؟"
+
+
+# ==================================
+# Poem Formatting
+# ==================================
+
+def clean_poem(poem):
+
+    if not poem:
+        return ""
+
+    poem = str(
+        poem
+    )
+
+    poem = poem.replace(
+        "\r\n",
+        "\n"
+    )
+
+    poem = poem.replace(
+        "\r",
+        "\n"
+    )
+
+    poem = re.sub(
+        r"\n{3,}",
+        "\n\n",
+        poem
+    )
+
+    return poem.strip()
+
+
+def format_fortune(record):
+
+    number = get_ghazal_number(
+        record
+    )
+
+    poem = clean_poem(
+        record.get(
+            "poem",
+            ""
+        )
+    )
+
+    interpretation = get_interpretation(
+        record
+    )
+
+    text = (
+        "فال حافظ\n"
+        f"شماره غزل {number}\n\n"
+        f"{poem}\n\n"
+        "────────────\n\n"
+        "🌌 تعبیر\n\n"
+    )
+
+    if interpretation:
+
+        text += (
+            f"{interpretation}\n\n"
         )
 
     else:
 
-        draw_ornament(
-            d,
-            p,
-            H - 112
+        text += (
+            "بات تعبیری برای این غزل ندارد.\n\n"
         )
 
-    panel = PANEL.copy()
+    # هشدار سرگرمی با فونت برجسته
 
-    pd = D(panel)
-
-    pd.rr(
-        (100,160,980,890),
-        radius=45,
-        outline=p["panel_outline"],
-        width=2
+    text += (
+        "<b>توجه : فال و طالع‌بینی جنبه سرگرمی دارد و "
+        "پیشنهاد نمی‌شود بر اساس آن تصمیمی گرفته شود.</b>\n\n"
     )
 
-    image = Image.alpha_composite(
-        image,
-        panel
+    text += (
+        f"{CHANNEL_URL} 🌱"
     )
 
-    d = D(image)
+    return text
 
-    left = 145
-    right = 935
 
-    top = 205
-    bottom = 845
+def send_fortune(
+    chat_id,
+    record
+):
 
-    max_width = right - left
-    available_height = bottom - top
+    text = format_fortune(
+        record
+    )
 
-    font_size = 66
+    chunks = split_message(
+        text
+    )
 
-    lines = []
+    results = []
 
-    line_spacing = LINE_SPACING
-    blank_spacing = BLANK_LINE_SPACING
+    for chunk in chunks:
 
-    while font_size >= 28:
-
-        poem_font = get_font(
-            POEM_FONT,
-            font_size
+        result = send_message(
+            chat_id,
+            chunk,
+            reply_markup=FORTUNE_KEYBOARD
         )
 
-        lines = prepare_lines(
-            d,
-            text,
-            poem_font,
-            max_width
+        results.append(
+            result
         )
 
-        line_count = sum(
-            1
-            for line in lines
-            if line is not None
+    # فقط پاسخ واقعی API با ok=True موفق محسوب می‌شود
+
+    return all(
+        api_success(result)
+        for result in results
+    )
+
+
+# ==================================
+# Audio URL Extraction
+# ==================================
+
+def extract_audio_urls(
+    html,
+    base_url
+):
+
+    candidates = []
+
+    absolute_urls = re.findall(
+        r'https?://[^"\'>\s]+?\.(?:ogg|mp3)(?:\?[^"\'>\s]*)?',
+        html,
+        re.IGNORECASE
+    )
+
+    for url in absolute_urls:
+
+        url = url.replace(
+            "&amp;",
+            "&"
         )
 
-        # فاصلهٔ خطوط بر اساس تعداد خطوط واقعی شعر
-        if line_count <= 2:
-            current_line_spacing = 32
-            current_blank_spacing = 48
-
-        elif line_count == 3:
-            current_line_spacing = 26
-            current_blank_spacing = 40
-
-        elif line_count == 4:
-            current_line_spacing = 20
-            current_blank_spacing = 32
-
-        elif line_count == 5:
-            current_line_spacing = 17
-            current_blank_spacing = 28
-
-        else:
-            current_line_spacing = 14
-            current_blank_spacing = 24
-
-        height = calculate_height(
-            d,
-            lines,
-            poem_font,
-            current_line_spacing,
-            current_blank_spacing
+        candidates.append(
+            url
         )
 
-        if height <= available_height:
-            line_spacing = current_line_spacing
-            blank_spacing = current_blank_spacing
-            break
+    relative_urls = re.findall(
+        r'["\']([^"\']+\.(?:ogg|mp3)(?:\?[^"\']*)?)["\']',
+        html,
+        re.IGNORECASE
+    )
 
-        font_size -= 2
+    for relative in relative_urls:
 
-    if not lines:
-
-        poem_font = get_font(
-            POEM_FONT,
-            46
+        full_url = urljoin(
+            base_url,
+            relative
         )
 
-        lines = [
-            "متن خالی است"
-        ]
+        candidates.append(
+            full_url
+        )
 
-        line_spacing = 20
-        blank_spacing = 30
+    unique = []
 
-    items = []
+    seen = set()
 
-    total_height = 0
+    for url in candidates:
 
-    for index, line in enumerate(lines):
+        if url not in seen:
 
-        if line is None:
+            seen.add(url)
 
-            items.append(
-                (
-                    None,
-                    None,
-                    blank_spacing
-                )
+            unique.append(
+                url
             )
 
-            total_height += blank_spacing
-
-            continue
-
-        bbox = d.bbox(
-            (0,0),
-            line,
-            poem_font
-        )
-
-        height = (
-            bbox[3] -
-            bbox[1]
-        )
-
-        items.append(
-            (
-                line,
-                bbox,
-                height
-            )
-        )
-
-        total_height += height
-
-        if index != len(lines)-1:
-            total_height += line_spacing
-
-    y = (
-        top +
-        (available_height - total_height) / 2
-    )
-
-    y = max(
-        top,
-        y
-    )
-
-    if y + total_height > bottom:
-        y = bottom - total_height
-
-    for line, bbox, height in items:
-
-        if line is None:
-
-            y += blank_spacing
-
-            continue
-
-        width = (
-            bbox[2] -
-            bbox[0]
-        )
-
-        x = (
-            left +
-            (max_width - width) / 2
-        )
-
-        d.text(
-            (x, y - bbox[1]),
-            line,
-            font=poem_font,
-            fill=p["text"]
-        )
-
-        y += (
-            height +
-            line_spacing
-        )
-
-    center_y = (
-        top +
-        (available_height // 2)
-    )
-
-    for x in (65, 1015):
-
-        d.line(
-            (
-                (x, center_y-30),
-                (x, center_y+30)
-            ),
-            fill=p["side_line"],
-            width=2
-        )
-
-        d.ellipse(
-            (
-                x-3,
-                center_y-3,
-                x+3,
-                center_y+3
-            ),
-            fill=p["side_dot"]
-        )
-
-    filename = (
-        "/tmp/poetry_card_" +
-        uuid.uuid4().hex +
-        ".png"
-    )
-
-    image.resize(
-        (W,H),
-        Image.Resampling.LANCZOS
-    ).convert("RGB").save(
-        filename,
-        "PNG",
-        compress_level=2,
-        optimize=False
-    )
-
-    return filename
-
-
-def type_keyboard():
-    return {
-        "inline_keyboard": [
-            [
-                {
-                    "text": "🖋️ با امضای شعرکده",
-                    "callback_data": "type_branded"
-                }
-            ],
-            [
-                {
-                    "text": "◻️ کارت عمومی، بدون امضا",
-                    "callback_data": "type_public"
-                }
-            ]
-        ]
-    }
-
-
-def color_keyboard():
-    labels = [
-        "🟣 سلطنتی",
-        "🔵 آبی شبانه",
-        "🔴 شرابی",
-        "🩵 فیروزه‌ای تیره",
-        "🟢 سبز زمردی",
-        "🩷 رزگلد",
-        "🟡 کرم",
-        "🔵 آبی روشن",
-        "🌿 مریم‌گلی"
+    ganjoor = [
+        url
+        for url in unique
+        if "i.ganjoor.net" in url.lower()
     ]
 
-    return {
-        "inline_keyboard": [
-            [
-                {
-                    "text": labels[i],
-                    "callback_data": f"color_{i}"
-                }
-                for i in range(
-                    row,
-                    min(row+3, 9)
-                )
-            ]
-            for row in range(0, 9, 3)
-        ]
-    }
+    if ganjoor:
+
+        return ganjoor
+
+    return unique
 
 
-def worker(
-    chat_id,
-    poem,
-    p,
-    branded
+# ==================================
+# Resolve Audio From Source
+# ==================================
+
+def resolve_audio_from_source(
+    source_url
 ):
-    filename = None
-    building_id = None
+
+    if not source_url:
+        return None
+
+    cached = audio_url_cache_get(
+        source_url
+    )
+
+    if cached:
+
+        if check_audio_url(
+            cached
+        ):
+
+            return cached
+
+        print(
+            "[AUDIO] Cached URL is no longer valid."
+        )
+
+    lock = get_audio_resolve_lock(
+        source_url
+    )
+
+    with lock:
+
+        cached = audio_url_cache_get(
+            source_url
+        )
+
+        if cached:
+
+            if check_audio_url(
+                cached
+            ):
+
+                return cached
+
+            print(
+                "[AUDIO] Cached URL is no longer valid."
+            )
+
+        try:
+
+            print(
+                f"[AUDIO] Resolving source: "
+                f"{source_url}"
+            )
+
+            response = get_session().get(
+                source_url,
+                timeout=REQUEST_TIMEOUT
+            )
+
+            try:
+
+                if response.status_code != 200:
+
+                    print(
+                        "[AUDIO] Source page status:",
+                        response.status_code
+                    )
+
+                    return None
+
+                candidates = extract_audio_urls(
+                    response.text,
+                    source_url
+                )
+
+            finally:
+
+                response.close()
+
+            if not candidates:
+
+                print(
+                    "[AUDIO] No audio URL found."
+                )
+
+                return None
+
+            ogg_candidates = [
+                url
+                for url in candidates
+                if ".ogg" in url.lower()
+            ]
+
+            ordered_candidates = (
+                ogg_candidates
+                + [
+                    url
+                    for url in candidates
+                    if url not in ogg_candidates
+                ]
+            )
+
+            for candidate in ordered_candidates:
+
+                if negative_cache_get(
+                    candidate
+                ):
+
+                    continue
+
+                print(
+                    f"[AUDIO] Checking candidate: "
+                    f"{candidate}"
+                )
+
+                if check_audio_url(
+                    candidate
+                ):
+
+                    audio_url_cache_put(
+                        source_url,
+                        candidate
+                    )
+
+                    print(
+                        f"[AUDIO] Resolved: "
+                        f"{candidate}"
+                    )
+
+                    return candidate
+
+                negative_cache_put(
+                    candidate
+                )
+
+                print(
+                    f"[AUDIO] Invalid candidate: "
+                    f"{candidate}"
+                )
+
+            print(
+                "[AUDIO] No valid audio candidate found."
+            )
+
+            return None
+
+        except Exception as e:
+
+            print(
+                "[AUDIO] Resolve error:",
+                e
+            )
+
+            return None
+
+
+# ==================================
+# Check Audio URL
+# ==================================
+
+def check_audio_url(
+    audio_url
+):
+
+    if not audio_url:
+        return False
 
     try:
 
-        response = send_message(
-            chat_id,
-            "⏳ <b>کارت شعر در حال ساخت است...</b>"
+        response = get_session().get(
+            audio_url,
+            stream=True,
+            timeout=REQUEST_TIMEOUT
         )
 
-        if response is not None and response.ok:
+        try:
 
-            try:
-                building_id = (
-                    response.json()
-                    .get("result", {})
-                    .get("message_id")
-                )
+            return response.status_code == 200
 
-            except Exception:
-                pass
+        finally:
 
-        filename = create_card(
-            poem,
-            p,
-            branded
+            response.close()
+
+    except Exception as e:
+
+        print(
+            "[AUDIO] Check error:",
+            e
         )
 
-        response = send_photo(
-            chat_id,
-            filename
+        return False
+
+
+# ==================================
+# Resolve Final Audio
+# ==================================
+
+def resolve_final_audio_url(record):
+
+    audio_url = str(
+        record.get(
+            "audio",
+            ""
         )
+    ).strip()
 
-        if response is not None and response.ok:
+    if audio_url:
 
-            if building_id:
-                delete_message(
-                    chat_id,
-                    building_id
-                )
+        if not negative_cache_get(
+            audio_url
+        ):
 
-            response = send_message(
-                chat_id,
-                "✨ کارت شعر شما آماده شد.\n\n"
-                "اگر باز هم شعری دارید، همین‌جا ارسال کنید "
-                "تا آن را هم به کارت شعر تبدیل کنیم. 🖼️\n\n"
-                "📖 برای شعرهای بیشتر، سری به "
-                f'<a href="{CHANNEL_URL}">«شعرکده»</a> '
-                "در سروش پلاس بزنید."
+            if check_audio_url(
+                audio_url
+            ):
+
+                return audio_url
+
+            negative_cache_put(
+                audio_url
             )
 
-            if response is not None and response.ok:
+    source_url = str(
+        record.get(
+            "source",
+            ""
+        )
+    ).strip()
 
-                try:
+    if source_url:
 
-                    ready_id = (
-                        response.json()
-                        .get("result", {})
-                        .get("message_id")
+        return resolve_audio_from_source(
+            source_url
+        )
+
+    return None
+
+
+# ==================================
+# Download Audio
+# ==================================
+
+def download_audio(
+    audio_url
+):
+
+    if not audio_url:
+        return None
+
+    cached = audio_cache_get(
+        audio_url
+    )
+
+    if cached is not None:
+
+        print(
+            "[AUDIO] Cache HIT"
+        )
+
+        return cached
+
+    if negative_cache_get(
+        audio_url
+    ):
+
+        print(
+            "[AUDIO] Negative cache HIT"
+        )
+
+        return None
+
+    lock = get_audio_download_lock(
+        audio_url
+    )
+
+    with lock:
+
+        cached = audio_cache_get(
+            audio_url
+        )
+
+        if cached is not None:
+
+            print(
+                "[AUDIO] Cache HIT after lock"
+            )
+
+            return cached
+
+        try:
+
+            print(
+                f"[AUDIO] Downloading: "
+                f"{audio_url}"
+            )
+
+            response = get_session().get(
+                audio_url,
+                timeout=REQUEST_TIMEOUT
+            )
+
+            try:
+
+                if response.status_code == 404:
+
+                    print(
+                        "[AUDIO] 404"
                     )
 
-                    if ready_id:
+                    negative_cache_put(
+                        audio_url
+                    )
 
-                        with LOCK:
-                            READY[chat_id] = ready_id
+                    return None
 
-                except Exception:
-                    pass
+                if response.status_code != 200:
 
-        else:
+                    print(
+                        "[AUDIO] Download status:",
+                        response.status_code
+                    )
 
-            if building_id:
-                delete_message(
-                    chat_id,
-                    building_id
+                    return None
+
+                data = response.content
+
+            finally:
+
+                response.close()
+
+            if not data:
+
+                print(
+                    "[AUDIO] Empty audio response."
                 )
+
+                return None
+
+            audio_cache_put(
+                audio_url,
+                data
+            )
+
+            print(
+                f"[AUDIO] Downloaded "
+                f"{len(data) / 1024:.1f} KB"
+            )
+
+            return data
+
+        except Exception as e:
+
+            print(
+                "[AUDIO] Download error:",
+                e
+            )
+
+            return None
+
+
+# ==================================
+# Audio Metadata
+# ==================================
+
+def get_audio_title(record):
+
+    number = get_ghazal_number(
+        record
+    )
+
+    return f"غزل شمارهٔ {number}"
+
+
+def get_audio_performer(record):
+
+    return "شعرکده سروش پلاس"
+
+
+# ==================================
+# Send Audio
+# ==================================
+
+def send_audio(
+    chat_id,
+    record
+):
+
+    audio_url = resolve_final_audio_url(
+        record
+    )
+
+    if not audio_url:
+
+        print(
+            "[AUDIO] No audio URL available."
+        )
+
+        return None
+
+    audio_data = download_audio(
+        audio_url
+    )
+
+    if not audio_data:
+
+        print(
+            "[AUDIO] Audio download failed."
+        )
+
+        return None
+
+    lower_url = audio_url.lower()
+
+    if ".mp3" in lower_url:
+
+        extension = "mp3"
+        mime_type = "audio/mpeg"
+
+    else:
+
+        extension = "ogg"
+        mime_type = "audio/ogg"
+
+    number = get_ghazal_number(
+        record
+    )
+
+    filename = (
+        f"غزل {number} - حافظ - گنجور."
+        f"{extension}"
+    )
+
+    audio_title = get_audio_title(
+        record
+    )
+
+    audio_performer = get_audio_performer(
+        record
+    )
+
+    print(
+        f"[AUDIO] Sending Audio | "
+        f"filename={filename} | "
+        f"title={audio_title} | "
+        f"performer={audio_performer}"
+    )
+
+    files = {
+        "audio": (
+            filename,
+            audio_data,
+            mime_type
+        )
+    }
+
+    return splus_request(
+        "sendAudio",
+        data={
+            "chat_id": chat_id,
+            "performer": audio_performer,
+            "title": audio_title,
+        },
+        files=files
+    )
+
+
+# ==================================
+# Chat Control State
+# ==================================
+
+CHAT_CONTROL_MESSAGES = {}
+
+CHAT_CONTROL_LOCK = threading.RLock()
+
+
+def set_control_message(
+    chat_id,
+    message_id
+):
+
+    with CHAT_CONTROL_LOCK:
+
+        CHAT_CONTROL_MESSAGES[
+            str(chat_id)
+        ] = message_id
+
+
+def get_control_message(
+    chat_id
+):
+
+    with CHAT_CONTROL_LOCK:
+
+        return CHAT_CONTROL_MESSAGES.get(
+            str(chat_id)
+        )
+
+
+def remove_control_message(
+    chat_id
+):
+
+    with CHAT_CONTROL_LOCK:
+
+        return CHAT_CONTROL_MESSAGES.pop(
+            str(chat_id),
+            None
+        )
+
+
+def clear_control_message(
+    chat_id
+):
+
+    with CHAT_CONTROL_LOCK:
+
+        CHAT_CONTROL_MESSAGES.pop(
+            str(chat_id),
+            None
+        )
+
+
+# ==================================
+# Fortune Processing
+# ==================================
+
+def process_fortune(
+    chat_id,
+    fortune_message_id
+):
+
+    # قفل فقط برای همین chat_id است.
+    # کاربران دیگر می‌توانند همزمان فال بگیرند.
+
+    fortune_lock = get_fortune_lock(
+        chat_id
+    )
+
+    acquired = fortune_lock.acquire(
+        blocking=False
+    )
+
+    if not acquired:
+
+        print(
+            f"[FORTUNE] Ignored concurrent "
+            f"request for chat={chat_id}"
+        )
+
+        return
+
+    try:
+
+        if not HAZALS:
 
             send_message(
                 chat_id,
-                "✅ کارت ساخته شد، اما ارسال تصویر موفق نشد."
+                "متأسفانه مجموعه غزل‌های حافظ در دسترس نیست.",
+                reply_markup=MAIN_KEYBOARD
             )
 
-    except Exception as error:
+            return
 
-        print(
-            "Card worker error:",
-            error
+        record = random.choice(
+            HAZALS
         )
 
-        if building_id:
-            delete_message(
-                chat_id,
-                building_id
+        number = get_ghazal_number(
+            record
+        )
+
+        print(
+            f"[FORTUNE] Selected ghazal #{number}"
+        )
+
+        interpretation = get_interpretation(
+            record
+        )
+
+        if interpretation:
+
+            print(
+                f"[TABIR] Found interpretation "
+                f"for ghazal #{number}"
             )
 
-        send_message(
+        else:
+
+            print(
+                f"[TABIR] No interpretation "
+                f"for ghazal #{number}"
+            )
+
+        success = send_fortune(
             chat_id,
-            "❌ هنگام ساخت کارت مشکلی پیش آمد."
+            record
+        )
+
+        if success:
+
+            old_control = get_control_message(
+                chat_id
+            )
+
+            if old_control:
+
+                delete_message(
+                    chat_id,
+                    old_control
+                )
+
+            if fortune_message_id:
+
+                delete_message(
+                    chat_id,
+                    fortune_message_id
+                )
+
+            clear_control_message(
+                chat_id
+            )
+
+            # فقط بعد از ارسال موفق فال، صوت ارسال می‌شود.
+
+            send_audio(
+                chat_id,
+                record
+            )
+
+    except Exception as e:
+
+        print(
+            "[FORTUNE] ERROR:",
+            e
         )
 
     finally:
 
-        if filename and os.path.exists(filename):
-
-            try:
-                os.remove(filename)
-
-            except Exception:
-                pass
+        fortune_lock.release()
 
 
-def process_type(update):
-    q = update.get(
-        "callback_query"
-    ) or {}
-
-    if q.get("id"):
-        answer_callback(
-            q["id"]
-        )
-
-    data = q.get("data")
-
-    if data not in (
-        "type_branded",
-        "type_public"
-    ):
-        return "OK", 200
-
-    message = q.get(
-        "message"
-    ) or {}
-
-    chat = message.get(
-        "chat"
-    ) or {}
-
-    chat_id = chat.get("id")
-    message_id = message.get("message_id")
-
-    if chat_id and message_id:
-        delete_message(
-            chat_id,
-            message_id
-        )
-
-    if not chat_id:
-        return "OK", 200
-
-    with LOCK:
-        pending = PENDING.get(
-            chat_id
-        )
-
-    if not pending:
-
-        send_message(
-            chat_id,
-            "⚠️ شعر در انتظار انتخاب پیدا نشد.\n\n"
-            "لطفاً دوباره شعرت را ارسال کن."
-        )
-
-        return "OK", 200
-
-    with LOCK:
-
-        if chat_id in PENDING:
-
-            PENDING[chat_id]["branded"] = (
-                data == "type_branded"
-            )
-
-    refresh_timeout(
-        chat_id
-    )
-
-    send_message(
-        chat_id,
-        "🎨 <b>حالا رنگ کارت شعر را انتخاب کن:</b>",
-        color_keyboard()
-    )
-
-    return "OK", 200
-
-
-def process_color(update):
-    q = update.get(
-        "callback_query"
-    ) or {}
-
-    if q.get("id"):
-        answer_callback(
-            q["id"]
-        )
-
-    data = q.get(
-        "data",
-        ""
-    )
-
-    if not data.startswith("color_"):
-        return "OK", 200
-
-    message = q.get(
-        "message"
-    ) or {}
-
-    chat = message.get(
-        "chat"
-    ) or {}
-
-    chat_id = chat.get("id")
-    message_id = message.get("message_id")
-
-    if chat_id and message_id:
-        delete_message(
-            chat_id,
-            message_id
-        )
-
-    if not chat_id:
-        return "OK", 200
-
-    try:
-        index = int(
-            data[6:]
-        )
-
-    except ValueError:
-
-        send_message(
-            chat_id,
-            "❌ رنگ انتخاب‌شده معتبر نیست."
-        )
-
-        return "OK", 200
-
-    if not 0 <= index < len(PALETTES):
-
-        send_message(
-            chat_id,
-            "❌ رنگ انتخاب‌شده معتبر نیست."
-        )
-
-        return "OK", 200
-
-    with LOCK:
-
-        pending = PENDING.pop(
-            chat_id,
-            None
-        )
-
-        timer = TIMERS.pop(
-            chat_id,
-            None
-        )
-
-    if timer:
-
-        try:
-            timer.cancel()
-
-        except Exception:
-            pass
-
-    if not pending:
-
-        send_message(
-            chat_id,
-            "⚠️ شعر در انتظار انتخاب پیدا نشد.\n\n"
-            "لطفاً دوباره شعرت را ارسال کن."
-        )
-
-        return "OK", 200
-
-    poem = pending.get(
-        "poem"
-    )
-
-    if not poem:
-
-        send_message(
-            chat_id,
-            "⚠️ متن شعر پیدا نشد.\n\n"
-            "لطفاً دوباره شعرت را ارسال کن."
-        )
-
-        return "OK", 200
-
-    threading.Thread(
-        target=worker,
-        args=(
-            chat_id,
-            poem,
-            PALETTES[index],
-            pending.get(
-                "branded",
-                True
-            )
-        ),
-        daemon=True
-    ).start()
-
-    return "OK", 200
-
-
-@app.route("/")
-def home():
-    return (
-        "Poetry Card Bot is running",
-        200
-    )
-
+# ==================================
+# Webhook
+# ==================================
 
 @app.route(
     "/webhook",
@@ -1598,45 +1850,19 @@ def webhook():
 
     try:
 
-        update = (
-            request.get_json(
-                silent=True
-            ) or {}
-        )
-
-        if update.get(
-            "callback_query"
-        ):
-
-            data = (
-                update["callback_query"]
-                .get("data", "")
-            )
-
-            if data in (
-                "type_branded",
-                "type_public"
-            ):
-                return process_type(
-                    update
-                )
-
-            if data.startswith(
-                "color_"
-            ):
-                return process_color(
-                    update
-                )
-
-            return "OK", 200
+        update = request.get_json(
+            silent=True
+        ) or {}
 
         message = update.get(
             "message"
-        ) or {}
-
-        text = message.get(
-            "text"
+        ) or update.get(
+            "edited_message"
         )
+
+        if not message:
+
+            return "ok"
 
         chat = message.get(
             "chat"
@@ -1646,87 +1872,345 @@ def webhook():
             "id"
         )
 
-        if not chat_id or not text:
-            return "OK", 200
+        if chat_id is None:
+
+            return "ok"
+
+        text = str(
+            message.get(
+                "text",
+                ""
+            )
+        ).strip()
+
+        message_id = message.get(
+            "message_id"
+        )
+
+        # ------------------------------
+        # /start
+        # ------------------------------
 
         if text == "/start":
 
-            with LOCK:
-
-                timer = TIMERS.pop(
-                    chat_id,
-                    None
-                )
-
-                PENDING.pop(
-                    chat_id,
-                    None
-                )
-
-                READY.pop(
-                    chat_id,
-                    None
-                )
-
-            if timer:
-
-                try:
-                    timer.cancel()
-
-                except Exception:
-                    pass
+            welcome_text = (
+                "🌿 به فال حافظ خوش آمدید.\n\n"
+                "برای گرفتن فال، روی دکمه "
+                "«📜 فال حافظ» بزنید.\n\n"
+                "هر بار یک غزل تصادفی از "
+                "غزلیات حافظ برای شما انتخاب می‌شود."
+            )
 
             send_message(
                 chat_id,
-                "سلام 👋\n\n"
-                "🖼️ به بات کارت شعر خوش آمدی.\n\n"
-                "شعرت را همین‌جا بفرست تا برایت کارت شعر بسازم. ✨\n\n"
-                "📖 برای دیدن شعرهای بیشتر، "
-                f'<a href="{CHANNEL_URL}">شعرکده</a> '
-                "در سروش پلاس را دنبال کن."
+                welcome_text,
+                reply_markup=MAIN_KEYBOARD
             )
 
-            return "OK", 200
+            if message_id:
 
-        remove_previous_ready(
-            chat_id
-        )
+                delete_message(
+                    chat_id,
+                    message_id
+                )
 
-        store_pending(
-            chat_id,
-            text
-        )
+            return "ok"
 
-        send_message(
-            chat_id,
-            "🖼️ <b>نوع کارت شعر را انتخاب کن:</b>\n\n"
-            "🖋️ با امضای شعرکده\n"
-            "کارت با عنوان و امضای شعرکده ساخته می‌شود.\n\n"
-            "◻️ کارت عمومی\n"
-            "کارت بدون نام و امضای شعرکده ساخته می‌شود.",
-            type_keyboard()
-        )
+        # ------------------------------
+        # Repeat Fortune
+        # ------------------------------
 
-        return "OK", 200
+        if text == "🌿 یک فال دیگر":
 
-    except Exception as error:
+            if message_id:
+
+                delete_message(
+                    chat_id,
+                    message_id
+                )
+
+            result = send_message(
+                chat_id,
+                "🌿 نیت کنید و روی «📜 فال حافظ» بزنید.",
+                reply_markup=MAIN_KEYBOARD
+            )
+
+            if result:
+
+                sent_message_id = None
+
+                if isinstance(
+                    result,
+                    dict
+                ):
+
+                    result_data = result.get(
+                        "result"
+                    )
+
+                    if isinstance(
+                        result_data,
+                        dict
+                    ):
+
+                        sent_message_id = (
+                            result_data.get(
+                                "message_id"
+                            )
+                        )
+
+                if sent_message_id:
+
+                    set_control_message(
+                        chat_id,
+                        sent_message_id
+                    )
+
+            return "ok"
+
+        # ------------------------------
+        # Fortune
+        # ------------------------------
+
+        if text == "📜 فال حافظ":
+
+            thread = threading.Thread(
+                target=process_fortune,
+                args=(
+                    chat_id,
+                    message_id
+                ),
+                daemon=True
+            )
+
+            thread.start()
+
+            return "ok"
+
+        # ------------------------------
+        # Poetry Card Bot
+        # ------------------------------
+
+        if text == "🎨 ساختن کارت شعر":
+
+            if message_id:
+
+                delete_message(
+                    chat_id,
+                    message_id
+                )
+
+            send_message(
+                chat_id,
+                (
+                    "🎨 <a href=\"http://splus.ir/PoetryCardBot\">کارت شعر</a>\n\n"
+                    "شعر مورد علاقه‌تان را به یک کارت شعر زیبا و اختصاصی تبدیل کنید. ✨\n\n"
+                    "برای ساخت کارت، وارد بات "
+                    "<a href=\"http://splus.ir/PoetryCardBot\">کارت شعر</a> شوید.\n\n"
+                    "🔗 <a href=\"http://splus.ir/PoetryCardBot\">http://splus.ir/PoetryCardBot</a>"
+                ),
+                reply_markup=MAIN_KEYBOARD
+            )
+
+            return "ok"
+
+        # ------------------------------
+        # About
+        # ------------------------------
+
+        if text == "🌿 درباره ما":
+
+            if message_id:
+
+                delete_message(
+                    chat_id,
+                    message_id
+                )
+
+            send_message(
+                chat_id,
+                ABOUT_TEXT,
+                reply_markup=MAIN_KEYBOARD
+            )
+
+            return "ok"
+
+        # ------------------------------
+        # Contact Admin
+        # ------------------------------
+
+        if text == "💬 ارتباط با مدیر":
+
+            if message_id:
+
+                delete_message(
+                    chat_id,
+                    message_id
+                )
+
+            send_message(
+                chat_id,
+                (
+                    "💬 <a href=\"http://splus.ir/PayamNashenasBot\">پیام ناشناس شعرکده</a>\n\n"
+                    "اگر پیشنهاد، انتقاد یا پیامی برای مدیر بات دارید، "
+                    "می‌توانید از طریق "
+                    "<a href=\"http://splus.ir/PayamNashenasBot\">پیام ناشناس شعرکده</a> "
+                    "با ما در ارتباط باشید.\n\n"
+                    "🔗 <a href=\"http://splus.ir/PayamNashenasBot\">http://splus.ir/PayamNashenasBot</a>"
+                ),
+                reply_markup=MAIN_KEYBOARD
+            )
+
+            return "ok"
+
+        # ------------------------------
+        # Poetry Channel
+        # ------------------------------
+
+        if text == "📣 کانال شعرکده":
+
+            if message_id:
+
+                delete_message(
+                    chat_id,
+                    message_id
+                )
+
+            send_message(
+                chat_id,
+                (
+                    "📣 <a href=\"https://splus.ir/life_m23\">کانال شعرکده</a>\n\n"
+                    "برای ورود مستقیم به <a href=\"https://splus.ir/life_m23\">کانال شعرکده</a> "
+                    "از لینک زیر استفاده کنید.\n\n"
+                    "🔗 <a href=\"https://splus.ir/life_m23\">https://splus.ir/life_m23</a>"
+                ),
+                reply_markup=MAIN_KEYBOARD
+            )
+
+            return "ok"
+
+        return "ok"
+
+    except Exception as e:
 
         print(
-            "Webhook error:",
-            error
+            "[WEBHOOK] ERROR:",
+            e
         )
 
-        raise
+        return "ok"
+
+
+# ==================================
+# Health Check
+# ==================================
+
+@app.route(
+    "/",
+    methods=["GET"]
+)
+def health():
+
+    return "Hafez Bot is running."
+
+
+# ==================================
+# Webhook Setup
+# ==================================
+
+def set_webhook():
+
+    print(
+        "[WEBHOOK] Setting webhook..."
+    )
+
+    result = splus_request(
+        "setWebhook",
+        data={
+            "url": WEBHOOK_URL
+        }
+    )
+
+    print(
+        "[WEBHOOK] Result:",
+        result
+    )
+
+    return result
+
+
+def webhook_setup_worker():
+
+    # کمی صبر می‌کنیم تا سرویس Flask/Render
+    # فرصت کافی برای بالا آمدن داشته باشد.
+
+    time.sleep(2)
+
+    try:
+
+        set_webhook()
+
+    except Exception as e:
+
+        print(
+            "[WEBHOOK] Setup ERROR:",
+            e
+        )
+
+
+# ==================================
+# Startup
+# ==================================
+
+try:
+
+    load_data()
+
+except Exception as e:
+
+    print(
+        "[STARTUP] DATA ERROR:",
+        e
+    )
+
+    HAZALS = []
+
+
+try:
+
+    load_interpretations()
+
+except Exception as e:
+
+    print(
+        "[STARTUP] TABIR ERROR:",
+        e
+    )
+
+    TABIR_MAP = {}
+
+
+# Webhook در Thread جداگانه تنظیم می‌شود
+# تا راه‌اندازی Flask را متوقف نکند.
+
+_webhook_thread = threading.Thread(
+    target=webhook_setup_worker,
+    daemon=True
+)
+
+_webhook_thread.start()
 
 
 if __name__ == "__main__":
+
+    port = int(
+        os.environ.get(
+            "PORT",
+            10000
+        )
+    )
+
     app.run(
         host="0.0.0.0",
-        port=int(
-            os.environ.get(
-                "PORT",
-                10000
-            )
-        ),
-        threaded=True
-             )
+        port=port
+    )
