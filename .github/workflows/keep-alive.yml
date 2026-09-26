@@ -1,0 +1,20 @@
+name: Keep Render Alive
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Ping Anonymous Bot
+        run: curl -f -s https://soroush-anonymous-bot.onrender.com/health > /dev/null
+
+      - name: Ping Poetry Card Bot
+        run: curl -f -s https://soroush-poetry-card-bot.onrender.com/ > /dev/null
+
+      - name: Ping Hafez Bot
+        run: curl -f -s https://hafez-bot.onrender.com/ > /dev/null
