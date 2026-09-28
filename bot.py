@@ -1029,7 +1029,6 @@ def send_fortune(
     for index, chunk in enumerate(
         chunks
     ):
-        # دکمه تعبیر فقط روی آخرین بخش فال قرار می‌گیرد.
         if index == len(chunks) - 1:
             reply_markup = fortune_inline_keyboard(
                 record
@@ -1098,8 +1097,7 @@ def send_interpretation(
     for chunk in chunks:
         result = send_message(
             chat_id,
-            chunk,
-            reply_markup=FORTUNE_KEYBOARD
+            chunk
         )
 
         results.append(
@@ -1736,11 +1734,49 @@ def process_fortune(
                 chat_id
             )
 
+            # ==================================
             # منطق صوت کاملاً بدون تغییر
+            # ==================================
+
             send_audio(
                 chat_id,
                 record
             )
+
+            # ==================================
+            # کنترل‌های فال
+            # ==================================
+
+            control_result = send_message(
+                chat_id,
+                "🌿 برای ادامه، یکی از گزینه‌های زیر را انتخاب کنید.",
+                reply_markup=FORTUNE_KEYBOARD
+            )
+
+            if api_success(
+                control_result
+            ):
+                sent_message_id = None
+
+                result_data = control_result.get(
+                    "result"
+                )
+
+                if isinstance(
+                    result_data,
+                    dict
+                ):
+                    sent_message_id = (
+                        result_data.get(
+                            "message_id"
+                        )
+                    )
+
+                if sent_message_id:
+                    set_control_message(
+                        chat_id,
+                        sent_message_id
+                    )
 
     except Exception as e:
         print(
@@ -1764,9 +1800,17 @@ def process_callback_query(
     )
 
     # پاسخ سریع به callback برای حذف حالت loading
-    answer_callback_query(
+    callback_result = answer_callback_query(
         callback_query_id
     )
+
+    if not api_success(
+        callback_result
+    ):
+        print(
+            "[TABIR] Callback answer failed:",
+            callback_result
+        )
 
     data = str(
         callback_query.get(
@@ -1774,6 +1818,10 @@ def process_callback_query(
             ""
         )
     ).strip()
+
+    print(
+        f"[CALLBACK] Received data: {data}"
+    )
 
     message = (
         callback_query.get("message")
@@ -1791,6 +1839,10 @@ def process_callback_query(
     )
 
     if chat_id is None:
+        print(
+            "[CALLBACK] Chat ID not found."
+        )
+
         return
 
     # ----------------------------------
@@ -1806,6 +1858,10 @@ def process_callback_query(
         )[1].strip()
 
         if not number:
+            print(
+                "[TABIR] Empty ghazal number."
+            )
+
             return
 
         print(
@@ -1819,6 +1875,10 @@ def process_callback_query(
         )
 
         return
+
+    print(
+        f"[CALLBACK] Unknown callback data: {data}"
+    )
 
 
 # ==================================
@@ -1835,24 +1895,28 @@ def webhook():
             silent=True
         ) or {}
 
-        # ------------------------------
+        # ==================================
         # Callback Query
-        # ------------------------------
+        # ==================================
 
         callback_query = update.get(
             "callback_query"
         )
 
         if callback_query:
+            print(
+                "[WEBHOOK] Callback query received."
+            )
+
             process_callback_query(
                 callback_query
             )
 
             return "ok"
 
-        # ------------------------------
+        # ==================================
         # Message
-        # ------------------------------
+        # ==================================
 
         message = (
             update.get("message")
@@ -1884,9 +1948,9 @@ def webhook():
             "message_id"
         )
 
-        # ------------------------------
+        # ==================================
         # /start
-        # ------------------------------
+        # ==================================
 
         if text == "/start":
             welcome_text = (
@@ -1911,11 +1975,25 @@ def webhook():
 
             return "ok"
 
-        # ------------------------------
+        # ==================================
         # Repeat Fortune
-        # ------------------------------
+        # ==================================
 
         if text == "🌿 یک فال دیگر":
+            old_control = get_control_message(
+                chat_id
+            )
+
+            if old_control:
+                delete_message(
+                    chat_id,
+                    old_control
+                )
+
+                clear_control_message(
+                    chat_id
+                )
+
             if message_id:
                 delete_message(
                     chat_id,
@@ -1928,26 +2006,24 @@ def webhook():
                 reply_markup=MAIN_KEYBOARD
             )
 
-            if result:
+            if api_success(
+                result
+            ):
                 sent_message_id = None
 
+                result_data = result.get(
+                    "result"
+                )
+
                 if isinstance(
-                    result,
+                    result_data,
                     dict
                 ):
-                    result_data = result.get(
-                        "result"
-                    )
-
-                    if isinstance(
-                        result_data,
-                        dict
-                    ):
-                        sent_message_id = (
-                            result_data.get(
-                                "message_id"
-                            )
+                    sent_message_id = (
+                        result_data.get(
+                            "message_id"
                         )
+                    )
 
                 if sent_message_id:
                     set_control_message(
@@ -1957,9 +2033,9 @@ def webhook():
 
             return "ok"
 
-        # ------------------------------
+        # ==================================
         # Fortune
-        # ------------------------------
+        # ==================================
 
         if text == "📜 فال حافظ":
             thread = threading.Thread(
@@ -1975,9 +2051,9 @@ def webhook():
 
             return "ok"
 
-        # ------------------------------
+        # ==================================
         # Poetry Card Bot
-        # ------------------------------
+        # ==================================
 
         if text == "🎨 ساختن کارت شعر":
             if message_id:
@@ -2000,9 +2076,9 @@ def webhook():
 
             return "ok"
 
-        # ------------------------------
+        # ==================================
         # About
-        # ------------------------------
+        # ==================================
 
         if text == "🌿 درباره ما":
             if message_id:
@@ -2019,9 +2095,9 @@ def webhook():
 
             return "ok"
 
-        # ------------------------------
+        # ==================================
         # Contact Admin
-        # ------------------------------
+        # ==================================
 
         if text == "💬 ارتباط با مدیر":
             if message_id:
@@ -2045,9 +2121,9 @@ def webhook():
 
             return "ok"
 
-        # ------------------------------
+        # ==================================
         # Poetry Channel
-        # ------------------------------
+        # ==================================
 
         if text == "📣 کانال شعرکده":
             if message_id:
@@ -2176,4 +2252,4 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=port
-        )
+)
