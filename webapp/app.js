@@ -76,7 +76,7 @@ async function loadData() {
         }
 
         /*
-         * تعبیرها را بدون تغییر ساختار اصلی نگه می‌داریم.
+         * تعبیرها دقیقاً از Hafez_Tabir.json خوانده می‌شوند.
          */
         interpretations = tabirData;
 
@@ -100,80 +100,163 @@ async function loadData() {
 // -----------------------------
 
 function getInterpretation(record) {
-    const title = String(record?.Title || "").trim();
-    const recordId = String(record?.record_id || "").trim();
 
-    if (!interpretations) {
+    if (!Array.isArray(interpretations)) {
         return "";
     }
 
     /*
-     * حالت آرایه‌ای
+     * دقیقاً مانند بات:
+     *
+     * ابتدا شماره غزل از Source استخراج می‌شود.
+     *
+     * مثال:
+     * https://ganjoor.net/hafez/ghazal/sh172/
+     *
+     * نتیجه:
+     * 172
      */
-    if (Array.isArray(interpretations)) {
-        for (const item of interpretations) {
-            if (!item || typeof item !== "object") {
-                continue;
-            }
 
-            const itemId = String(
-                item.id ??
-                item.ID ??
-                item.شناسه ??
-                item.record_id ??
-                ""
-            ).trim();
+    const source = String(
+        record?.Source || ""
+    ).trim();
 
-            const itemTitle = String(
-                item.Title ??
-                item.title ??
-                item.عنوان ??
-                ""
-            ).trim();
+    let ghazalNumber = null;
 
-            if (
-                (recordId && itemId === recordId) ||
-                (title && itemTitle === title)
-            ) {
-                return String(
-                    item.Tabir ??
-                    item.تعبیر ??
-                    item.Interpretation ??
-                    item.interpretation ??
-                    item.Text ??
-                    item.text ??
-                    ""
-                ).trim();
-            }
-        }
+    const sourceMatch = source.match(
+        /\/sh(\d+)/i
+    );
+
+    if (sourceMatch) {
+        ghazalNumber = sourceMatch[1];
     }
 
     /*
-     * حالت آبجکت با کلید شناسه
+     * اگر Source شماره نداشت، از Title استفاده می‌کنیم.
+     * این فقط fallback است و منطق اصلی همان Source است.
      */
-    if (
-        typeof interpretations === "object" &&
-        !Array.isArray(interpretations)
-    ) {
-        if (recordId && interpretations[recordId]) {
-            const item = interpretations[recordId];
 
-            if (typeof item === "string") {
-                return item.trim();
-            }
+    if (!ghazalNumber) {
+        const title = String(
+            record?.Title || ""
+        ).trim();
 
-            if (item && typeof item === "object") {
-                return String(
-                    item.Tabir ??
-                    item.تعبیر ??
-                    item.Interpretation ??
-                    item.interpretation ??
-                    item.Text ??
-                    item.text ??
-                    ""
-                ).trim();
+        const titleMatch = title.match(
+            /\d+/
+        );
+
+        if (titleMatch) {
+            ghazalNumber = titleMatch[0];
+        }
+    }
+
+    if (!ghazalNumber) {
+        return "";
+    }
+
+    const number = String(
+        ghazalNumber
+    ).trim();
+
+    /*
+     * منطق فایل تعبیر بات:
+     *
+     * اگر خود رکورد شماره غزل داشته باشد،
+     * همان شماره ملاک است.
+     *
+     * اگر شماره نداشته باشد،
+     * ترتیب رکوردها ملاک است.
+     */
+
+    for (let index = 0; index < interpretations.length; index++) {
+
+        const item = interpretations[index];
+
+        if (!item || typeof item !== "object") {
+            continue;
+        }
+
+        let itemNumber = null;
+
+        const possibleNumberFields = [
+            "ghazal_number",
+            "GhazalNumber",
+            "ghazal",
+            "number",
+            "Number",
+            "id",
+            "ID"
+        ];
+
+        for (const field of possibleNumberFields) {
+
+            const value = item[field];
+
+            if (value !== undefined && value !== null) {
+
+                const match = String(value).match(
+                    /\d+/
+                );
+
+                if (match) {
+                    itemNumber = match[0];
+                    break;
+                }
             }
         }
+
+        /*
+         * اگر خود فایل شماره نداشته باشد،
+         * دقیقاً مانند بات شماره رکورد = index + 1
+         */
+
+        if (!itemNumber) {
+            itemNumber = String(index + 1);
+        }
+
+        if (String(itemNumber) !== number) {
+            continue;
+        }
+
+        /*
+         * فیلد اصلی مورد استفاده بات:
+         *
+         * interpretation
+         */
+
+        const result = String(
+            item.interpretation || ""
+        ).trim();
+
+        if (!result) {
+            return "";
+        }
+
+        /*
+         * همان اعتبارسنجی بات:
+         * تعبیرهای نامعتبر نمایش داده نشوند.
+         */
+
+        const normalized = result.replace(
+            /\s/g,
+            ""
+        );
+
+        const invalidPhrases = [
+            "برایاینغزل هنوزتعبیریثبتنشده",
+            "برایاینغزل هنوزتعبیری",
+            "تعبیریثبتنشده",
+            "تعبیرثبتنشده",
+            "هنوزتعبیریثبتنشده"
+        ];
+
+        for (const phrase of invalidPhrases) {
+            if (normalized.includes(phrase)) {
+                return "";
+            }
+        }
+
+        return result;
     }
 
     return "";
