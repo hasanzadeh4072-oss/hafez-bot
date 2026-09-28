@@ -10,16 +10,18 @@ from urllib.parse import urljoin
 import requests
 from flask import Flask, request
 
-app = Flask(__name__)
+app = Flask(name)
 
-# ==================================
-# Configuration
-# ==================================
+==================================
+
+Configuration
+
+==================================
 
 TOKEN = os.environ.get("SOROUSH_TOKEN")
 
 if not TOKEN:
-    raise RuntimeError("SOROUSH_TOKEN environment variable is not set.")
+raise RuntimeError("SOROUSH_TOKEN environment variable is not set.")
 
 API = f"https://api.splus.ir/bot{TOKEN}"
 
@@ -38,9 +40,11 @@ CONNECT_TIMEOUT = 5
 READ_TIMEOUT = 15
 REQUEST_TIMEOUT = (CONNECT_TIMEOUT, READ_TIMEOUT)
 
-# ==================================
-# About
-# ==================================
+==================================
+
+About
+
+==================================
 
 ABOUT_TEXT = """🌿 درباره ما
 
@@ -60,9 +64,11 @@ ABOUT_TEXT = """🌿 درباره ما
 
 🔗 <a href="https://splus.ir/life_m23">لینک کانال شعرکده</a>"""
 
-# ==================================
-# Audio Cache
-# ==================================
+==================================
+
+Audio Cache
+
+==================================
 
 AUDIO_CACHE_MAX_ITEMS = 5
 AUDIO_CACHE_MAX_BYTES = 50 * 1024 * 1024
@@ -87,2068 +93,2132 @@ _AUDIO_RESOLVE_LOCKS_GUARD = threading.Lock()
 
 _THREAD_LOCAL = threading.local()
 
-
 def get_session():
-    session = getattr(
-        _THREAD_LOCAL,
-        "session",
-        None
-    )
+session = getattr(
+_THREAD_LOCAL,
+"session",
+None
+)
 
-    if session is None:
-        session = requests.Session()
+if session is None:  
 
-        session.headers.update({
-            "User-Agent": (
-                "Mozilla/5.0 "
-                "(compatible; HafezBot/1.0)"
-            )
-        })
+    session = requests.Session()  
 
-        _THREAD_LOCAL.session = session
+    session.headers.update({  
+        "User-Agent": (  
+            "Mozilla/5.0 "  
+            "(compatible; HafezBot/1.0)"  
+        )  
+    })  
 
-    return session
+    _THREAD_LOCAL.session = session  
 
+return session
 
 def get_audio_download_lock(audio_url):
-    with _AUDIO_DOWNLOAD_LOCKS_GUARD:
-        lock = _AUDIO_DOWNLOAD_LOCKS.get(
-            audio_url
-        )
 
-        if lock is None:
-            lock = threading.Lock()
+with _AUDIO_DOWNLOAD_LOCKS_GUARD:  
 
-            _AUDIO_DOWNLOAD_LOCKS[
-                audio_url
-            ] = lock
+    lock = _AUDIO_DOWNLOAD_LOCKS.get(  
+        audio_url  
+    )  
 
-        return lock
+    if lock is None:  
 
+        lock = threading.Lock()  
+
+        _AUDIO_DOWNLOAD_LOCKS[  
+            audio_url  
+        ] = lock  
+
+    return lock
 
 def get_audio_resolve_lock(source_url):
-    with _AUDIO_RESOLVE_LOCKS_GUARD:
-        lock = _AUDIO_RESOLVE_LOCKS.get(
-            source_url
-        )
 
-        if lock is None:
-            lock = threading.Lock()
+with _AUDIO_RESOLVE_LOCKS_GUARD:  
 
-            _AUDIO_RESOLVE_LOCKS[
-                source_url
-            ] = lock
+    lock = _AUDIO_RESOLVE_LOCKS.get(  
+        source_url  
+    )  
 
-        return lock
+    if lock is None:  
 
+        lock = threading.Lock()  
 
-# ==================================
-# Fortune Per-Chat Locks
-# ==================================
+        _AUDIO_RESOLVE_LOCKS[  
+            source_url  
+        ] = lock  
 
-# هر کاربر/چت قفل مستقل خودش را دارد.
-# بنابراین دو فال همزمان برای یک چت اجرا نمی‌شود،
-# اما کاربران مختلف روی یکدیگر اثر نمی‌گذارند.
+    return lock
+
+==================================
+
+Fortune Per-Chat Locks
+
+==================================
+
+هر کاربر/چت قفل مستقل خودش را دارد.
+
+بنابراین دو فال همزمان برای یک چت اجرا نمی‌شود،
+
+اما کاربران مختلف روی یکدیگر اثر نمی‌گذارند.
 
 _FORTUNE_LOCKS = {}
 _FORTUNE_LOCKS_GUARD = threading.Lock()
 
-
 def get_fortune_lock(chat_id):
-    chat_key = str(chat_id)
 
-    with _FORTUNE_LOCKS_GUARD:
-        lock = _FORTUNE_LOCKS.get(
-            chat_key
-        )
+chat_key = str(chat_id)  
 
-        if lock is None:
-            lock = threading.Lock()
+with _FORTUNE_LOCKS_GUARD:  
 
-            _FORTUNE_LOCKS[
-                chat_key
-            ] = lock
+    lock = _FORTUNE_LOCKS.get(  
+        chat_key  
+    )  
 
-        return lock
+    if lock is None:  
 
+        lock = threading.Lock()  
 
-# ==================================
-# Audio Cache Functions
-# ==================================
+        _FORTUNE_LOCKS[  
+            chat_key  
+        ] = lock  
+
+    return lock
+
+==================================
+
+Audio Cache Functions
+
+==================================
 
 def audio_cache_get(audio_url):
-    global _AUDIO_CACHE_BYTES
 
-    with _AUDIO_CACHE_LOCK:
-        item = _AUDIO_CACHE.get(
-            audio_url
-        )
+global _AUDIO_CACHE_BYTES  
 
-        if item is None:
-            return None
+with _AUDIO_CACHE_LOCK:  
 
-        data, created_at = item
+    item = _AUDIO_CACHE.get(  
+        audio_url  
+    )  
 
-        _AUDIO_CACHE.move_to_end(
-            audio_url
-        )
+    if item is None:  
+        return None  
 
-        return data
+    data, created_at = item  
 
+    _AUDIO_CACHE.move_to_end(  
+        audio_url  
+    )  
+
+    return data
 
 def audio_cache_put(
-    audio_url,
-    data
+audio_url,
+data
 ):
-    global _AUDIO_CACHE_BYTES
 
-    if not data:
-        return
+global _AUDIO_CACHE_BYTES  
 
-    data_size = len(data)
+if not data:  
+    return  
 
-    if data_size > AUDIO_CACHE_MAX_BYTES:
-        return
+data_size = len(data)  
 
-    with _AUDIO_CACHE_LOCK:
-        old = _AUDIO_CACHE.pop(
-            audio_url,
-            None
+if data_size > AUDIO_CACHE_MAX_BYTES:  
+    return  
+
+with _AUDIO_CACHE_LOCK:  
+
+    old = _AUDIO_CACHE.pop(  
+        audio_url,  
+        None  
+    )  
+
+    if old is not None:  
+
+        _AUDIO_CACHE_BYTES -= len(  
+            old[0]  
+        )  
+
+    _AUDIO_CACHE[audio_url] = (  
+        data,  
+        time.time()  
+    )  
+
+    _AUDIO_CACHE_BYTES += data_size  
+
+    while (  
+        len(_AUDIO_CACHE) > AUDIO_CACHE_MAX_ITEMS  
+        or _AUDIO_CACHE_BYTES > AUDIO_CACHE_MAX_BYTES  
+    ):  
+
+        _, old_item = _AUDIO_CACHE.popitem(  
+            last=False  
+        )  
+
+        _AUDIO_CACHE_BYTES -= len(  
+            old_item[0]  
         )
-
-        if old is not None:
-            _AUDIO_CACHE_BYTES -= len(
-                old[0]
-            )
-
-        _AUDIO_CACHE[audio_url] = (
-            data,
-            time.time()
-        )
-
-        _AUDIO_CACHE_BYTES += data_size
-
-        while (
-            len(_AUDIO_CACHE) > AUDIO_CACHE_MAX_ITEMS
-            or _AUDIO_CACHE_BYTES > AUDIO_CACHE_MAX_BYTES
-        ):
-            _, old_item = _AUDIO_CACHE.popitem(
-                last=False
-            )
-
-            _AUDIO_CACHE_BYTES -= len(
-                old_item[0]
-            )
-
 
 def negative_cache_get(audio_url):
-    now = time.time()
 
-    with _AUDIO_NEGATIVE_LOCK:
-        timestamp = _AUDIO_NEGATIVE_CACHE.get(
-            audio_url
-        )
+now = time.time()  
 
-        if timestamp is None:
-            return False
+with _AUDIO_NEGATIVE_LOCK:  
 
-        if (
-            now - timestamp
-            > AUDIO_NEGATIVE_CACHE_TTL
-        ):
-            del _AUDIO_NEGATIVE_CACHE[
-                audio_url
-            ]
+    timestamp = _AUDIO_NEGATIVE_CACHE.get(  
+        audio_url  
+    )  
 
-            return False
+    if timestamp is None:  
+        return False  
 
-        return True
+    if (  
+        now - timestamp  
+        > AUDIO_NEGATIVE_CACHE_TTL  
+    ):  
 
+        del _AUDIO_NEGATIVE_CACHE[  
+            audio_url  
+        ]  
+
+        return False  
+
+    return True
 
 def negative_cache_put(audio_url):
-    with _AUDIO_NEGATIVE_LOCK:
-        _AUDIO_NEGATIVE_CACHE[
-            audio_url
-        ] = time.time()
 
+with _AUDIO_NEGATIVE_LOCK:  
+
+    _AUDIO_NEGATIVE_CACHE[  
+        audio_url  
+    ] = time.time()
 
 def audio_url_cache_get(source_url):
-    now = time.time()
 
-    with _AUDIO_URL_CACHE_LOCK:
-        item = _AUDIO_URL_CACHE.get(
-            source_url
-        )
+now = time.time()  
 
-        if item is None:
-            return None
+with _AUDIO_URL_CACHE_LOCK:  
 
-        audio_url, timestamp = item
+    item = _AUDIO_URL_CACHE.get(  
+        source_url  
+    )  
 
-        if (
-            now - timestamp
-            > AUDIO_URL_CACHE_TTL
-        ):
-            del _AUDIO_URL_CACHE[
-                source_url
-            ]
+    if item is None:  
+        return None  
 
-            return None
+    audio_url, timestamp = item  
 
-        return audio_url
+    if (  
+        now - timestamp  
+        > AUDIO_URL_CACHE_TTL  
+    ):  
 
+        del _AUDIO_URL_CACHE[  
+            source_url  
+        ]  
+
+        return None  
+
+    return audio_url
 
 def audio_url_cache_put(
-    source_url,
-    audio_url
+source_url,
+audio_url
 ):
-    with _AUDIO_URL_CACHE_LOCK:
-        _AUDIO_URL_CACHE[
-            source_url
-        ] = (
-            audio_url,
-            time.time()
-        )
 
+with _AUDIO_URL_CACHE_LOCK:  
 
-# ==================================
-# Keyboards
-# ==================================
+    _AUDIO_URL_CACHE[  
+        source_url  
+    ] = (  
+        audio_url,  
+        time.time()  
+    )
+
+==================================
+
+Keyboards
+
+==================================
 
 MAIN_KEYBOARD = {
-    "keyboard": [
-        [
-            {
-                "text": "📜 فال حافظ"
-            }
-        ],
-        [
-            {
-                "text": "🎨 ساختن کارت شعر"
-            },
-            {
-                "text": "🌿 درباره ما"
-            }
-        ],
-        [
-            {
-                "text": "💬 ارتباط با مدیر"
-            },
-            {
-                "text": "📣 کانال شعرکده"
-            }
-        ]
-    ],
-    "resize_keyboard": True,
-    "one_time_keyboard": False
+"keyboard": [
+[
+{
+"text": "📜 فال حافظ"
 }
-
+],
+[
+{
+"text": "🎨 ساختن کارت شعر"
+},
+{
+"text": "🌿 درباره ما"
+}
+],
+[
+{
+"text": "💬 ارتباط با مدیر"
+},
+{
+"text": "📣 کانال شعرکده"
+}
+]
+],
+"resize_keyboard": True,
+"one_time_keyboard": False
+}
 
 FORTUNE_KEYBOARD = {
-    "keyboard": [
-        [
-            {
-                "text": "🌿 یک فال دیگر"
-            }
-        ],
-        [
-            {
-                "text": "🎨 ساختن کارت شعر"
-            },
-            {
-                "text": "🌿 درباره ما"
-            }
-        ],
-        [
-            {
-                "text": "💬 ارتباط با مدیر"
-            },
-            {
-                "text": "📣 کانال شعرکده"
-            }
-        ]
-    ],
-    "resize_keyboard": True,
-    "one_time_keyboard": False
+"keyboard": [
+[
+{
+"text": "🌿 یک فال دیگر"
+}
+],
+[
+{
+"text": "🎨 ساختن کارت شعر"
+},
+{
+"text": "🌿 درباره ما"
+}
+],
+[
+{
+"text": "💬 ارتباط با مدیر"
+},
+{
+"text": "📣 کانال شعرکده"
+}
+]
+],
+"resize_keyboard": True,
+"one_time_keyboard": False
 }
 
+==================================
 
-# ==================================
-# Data
-# ==================================
+Data
+
+==================================
 
 HAZALS = []
 
 TABIR_MAP = {}
 
+==================================
 
-# ==================================
-# API Success Helper
-# ==================================
+API Success Helper
+
+==================================
 
 def api_success(result):
-    return (
-        isinstance(result, dict)
-        and result.get("ok") is True
-    )
 
+return (  
+    isinstance(result, dict)  
+    and result.get("ok") is True  
+)
 
-# ==================================
-# Interpretation Validation
-# ==================================
+==================================
+
+Interpretation Validation
+
+==================================
 
 def is_valid_interpretation(
-    interpretation
+interpretation
 ):
-    if interpretation is None:
-        return False
 
-    interpretation = str(
-        interpretation
-    ).strip()
+if interpretation is None:  
+    return False  
 
-    if not interpretation:
-        return False
+interpretation = str(  
+    interpretation  
+).strip()  
 
-    normalized = interpretation.replace(
-        " ",
-        ""
-    )
+if not interpretation:  
+    return False  
 
-    invalid_phrases = [
-        "برایاینغزل هنوزتعبیریثبتنشده",
-        "برایاینغزل هنوزتعبیری",
-        "تعبیریثبتنشده",
-        "تعبیرثبتنشده",
-        "هنوزتعبیریثبتنشده",
-    ]
+normalized = interpretation.replace(  
+    " ",  
+    ""  
+)  
 
-    for phrase in invalid_phrases:
-        if phrase in normalized:
-            return False
+invalid_phrases = [  
+    "برایاینغزل هنوزتعبیریثبتنشده",  
+    "برایاینغزل هنوزتعبیری",  
+    "تعبیریثبتنشده",  
+    "تعبیرثبتنشده",  
+    "هنوزتعبیریثبتنشده",  
+]  
 
-    return True
+for phrase in invalid_phrases:  
 
+    if phrase in normalized:  
+        return False  
 
-# ==================================
-# Load Interpretations
-# ==================================
+return True
+
+==================================
+
+Load Interpretations
+
+==================================
 
 def load_interpretations():
-    global TABIR_MAP
 
-    TABIR_MAP = {}
+global TABIR_MAP  
 
-    if not os.path.exists(
-        TABIR_FILE
-    ):
-        print(
-            f"[TABIR] File not found: "
-            f"{TABIR_FILE}"
-        )
+TABIR_MAP = {}  
 
-        return
+if not os.path.exists(  
+    TABIR_FILE  
+):  
 
-    try:
-        with open(
-            TABIR_FILE,
-            "r",
-            encoding="utf-8"
-        ) as f:
-            data = json.load(f)
+    print(  
+        f"[TABIR] File not found: "  
+        f"{TABIR_FILE}"  
+    )  
 
-    except Exception as e:
-        print(
-            "[TABIR] JSON load error:",
-            e
-        )
+    return  
 
-        return
+try:  
 
-    if not isinstance(
-        data,
-        list
-    ):
-        print(
-            "[TABIR] JSON root must be a list."
-        )
+    with open(  
+        TABIR_FILE,  
+        "r",  
+        encoding="utf-8"  
+    ) as f:  
 
-        return
+        data = json.load(f)  
 
-    total_records = len(data)
-    valid_records = 0
-    skipped_records = 0
+except Exception as e:  
 
-    print(
-        f"[TABIR] Total records: "
-        f"{total_records}"
-    )
+    print(  
+        "[TABIR] JSON load error:",  
+        e  
+    )  
 
-    for index, item in enumerate(
-        data,
-        start=1
-    ):
-        # اگر فایل تعبیر شماره غزل داشته باشد،
-        # همان شماره ملاک قرار می‌گیرد.
-        # در ساختار فعلی فایل، در صورت نبود شماره،
-        # ترتیب رکوردها حفظ می‌شود.
+    return  
 
-        ghazal_number = None
+if not isinstance(  
+    data,  
+    list  
+):  
 
-        if isinstance(
-            item,
-            dict
-        ):
-            possible_number_fields = (
-                "ghazal_number",
-                "GhazalNumber",
-                "ghazal",
-                "number",
-                "Number",
-                "id",
-                "ID"
-            )
+    print(  
+        "[TABIR] JSON root must be a list."  
+    )  
 
-            for field in possible_number_fields:
-                value = item.get(
-                    field
-                )
+    return  
 
-                if value is not None:
-                    match = re.search(
-                        r"\d+",
-                        str(value)
-                    )
+total_records = len(data)  
+valid_records = 0  
+skipped_records = 0  
 
-                    if match:
-                        ghazal_number = (
-                            match.group(0)
-                        )
+print(  
+    f"[TABIR] Total records: "  
+    f"{total_records}"  
+)  
 
-                        break
+for index, item in enumerate(  
+    data,  
+    start=1  
+):  
 
-        if not ghazal_number:
-            ghazal_number = str(
-                index
-            )
+    # اگر فایل تعبیر شماره غزل داشته باشد،  
+    # همان شماره ملاک قرار می‌گیرد.  
+    # در ساختار فعلی فایل، در صورت نبود شماره،  
+    # ترتیب رکوردها حفظ می‌شود.  
 
-        if not isinstance(
-            item,
-            dict
-        ):
-            skipped_records += 1
+    ghazal_number = None  
 
-            print(
-                f"[TABIR] Skipped record "
-                f"#{ghazal_number}: "
-                f"invalid record structure"
-            )
+    if isinstance(  
+        item,  
+        dict  
+    ):  
 
-            continue
+        possible_number_fields = (  
+            "ghazal_number",  
+            "GhazalNumber",  
+            "ghazal",  
+            "number",  
+            "Number",  
+            "id",  
+            "ID"  
+        )  
 
-        interpretation = item.get(
-            "interpretation",
-            ""
-        )
+        for field in possible_number_fields:  
 
-        interpretation = str(
-            interpretation
-        ).strip()
+            value = item.get(  
+                field  
+            )  
 
-        if not is_valid_interpretation(
-            interpretation
-        ):
-            skipped_records += 1
+            if value is not None:  
 
-            print(
-                f"[TABIR] Skipped interpretation "
-                f"for ghazal #{ghazal_number}"
-            )
+                match = re.search(  
+                    r"\d+",  
+                    str(value)  
+                )  
 
-            continue
+                if match:  
 
-        TABIR_MAP[
-            str(ghazal_number)
-        ] = interpretation
+                    ghazal_number = (  
+                        match.group(0)  
+                    )  
 
-        valid_records += 1
+                    break  
 
-    print(
-        f"[TABIR] Valid interpretations: "
-        f"{valid_records}"
-    )
+    if not ghazal_number:  
 
-    print(
-        f"[TABIR] Skipped records: "
-        f"{skipped_records}"
-    )
+        ghazal_number = str(  
+            index  
+        )  
 
-    print(
-        f"[TABIR] Map size: "
-        f"{len(TABIR_MAP)}"
-    )
+    if not isinstance(  
+        item,  
+        dict  
+    ):  
 
+        skipped_records += 1  
+
+        print(  
+            f"[TABIR] Skipped record "  
+            f"#{ghazal_number}: "  
+            f"invalid record structure"  
+        )  
+
+        continue  
+
+    interpretation = item.get(  
+        "interpretation",  
+        ""  
+    )  
+
+    interpretation = str(  
+        interpretation  
+    ).strip()  
+
+    if not is_valid_interpretation(  
+        interpretation  
+    ):  
+
+        skipped_records += 1  
+
+        print(  
+            f"[TABIR] Skipped interpretation "  
+            f"for ghazal #{ghazal_number}"  
+        )  
+
+        continue  
+
+    TABIR_MAP[  
+        str(ghazal_number)  
+    ] = interpretation  
+
+    valid_records += 1  
+
+print(  
+    f"[TABIR] Valid interpretations: "  
+    f"{valid_records}"  
+)  
+
+print(  
+    f"[TABIR] Skipped records: "  
+    f"{skipped_records}"  
+)  
+
+print(  
+    f"[TABIR] Map size: "  
+    f"{len(TABIR_MAP)}"  
+)
 
 def get_interpretation(record):
-    number = get_ghazal_number(
-        record
-    )
 
-    if not number:
-        return None
+number = get_ghazal_number(  
+    record  
+)  
 
-    number = str(
-        number
-    ).strip()
+if not number:  
+    return None  
 
-    interpretation = TABIR_MAP.get(
-        number
-    )
+number = str(  
+    number  
+).strip()  
 
-    if is_valid_interpretation(
-        interpretation
-    ):
-        return interpretation
+interpretation = TABIR_MAP.get(  
+    number  
+)  
 
-    return None
+if is_valid_interpretation(  
+    interpretation  
+):  
 
+    return interpretation  
 
-# ==================================
-# Load Hafez Data
-# ==================================
+return None
+
+==================================
+
+Load Hafez Data
+
+==================================
 
 def load_data():
-    global HAZALS
 
-    if not os.path.exists(
-        DATA_FILE
-    ):
-        raise FileNotFoundError(
-            f"Data file not found: "
-            f"{DATA_FILE}"
-        )
+global HAZALS  
 
-    with open(
-        DATA_FILE,
-        "r",
-        encoding="utf-8"
-    ) as f:
-        data = json.load(f)
+if not os.path.exists(  
+    DATA_FILE  
+):  
 
-    if not isinstance(
-        data,
-        list
-    ):
-        raise ValueError(
-            "HafezFilebot.json must "
-            "contain a list."
-        )
+    raise FileNotFoundError(  
+        f"Data file not found: "  
+        f"{DATA_FILE}"  
+    )  
 
-    result = []
+with open(  
+    DATA_FILE,  
+    "r",  
+    encoding="utf-8"  
+) as f:  
 
-    for item in data:
-        if not isinstance(
-            item,
-            dict
-        ):
-            continue
+    data = json.load(f)  
 
-        for record_id, record in item.items():
-            if not isinstance(
-                record,
-                dict
-            ):
-                continue
+if not isinstance(  
+    data,  
+    list  
+):  
 
-            poem = str(
-                record.get(
-                    "Poem",
-                    ""
-                )
-            ).strip()
+    raise ValueError(  
+        "HafezFilebot.json must "  
+        "contain a list."  
+    )  
 
-            if not poem:
-                continue
+result = []  
 
-            title = str(
-                record.get(
-                    "Title",
-                    ""
-                )
-            ).strip()
+for item in data:  
 
-            source = str(
-                record.get(
-                    "Source",
-                    ""
-                )
-            ).strip()
+    if not isinstance(  
+        item,  
+        dict  
+    ):  
+        continue  
 
-            audio = str(
-                record.get(
-                    "Audio",
-                    ""
-                )
-            ).strip()
+    for record_id, record in item.items():  
 
-            author = str(
-                record.get(
-                    "Author",
-                    "حافظ"
-                )
-            ).strip() or "حافظ"
+        if not isinstance(  
+            record,  
+            dict  
+        ):  
+            continue  
 
-            book = str(
-                record.get(
-                    "Book",
-                    "غزلیات حافظ"
-                )
-            ).strip() or "غزلیات حافظ"
+        poem = str(  
+            record.get(  
+                "Poem",  
+                ""  
+            )  
+        ).strip()  
 
-            result.append({
-                "record_id": str(record_id),
-                "author": author,
-                "book": book,
-                "poem": poem,
-                "source": source,
-                "title": title,
-                "audio": audio
-            })
+        if not poem:  
+            continue  
 
-    HAZALS = result
+        title = str(  
+            record.get(  
+                "Title",  
+                ""  
+            )  
+        ).strip()  
 
-    audio_count = sum(
-        1
-        for item in HAZALS
-        if item.get("audio")
-    )
+        source = str(  
+            record.get(  
+                "Source",  
+                ""  
+            )  
+        ).strip()  
 
-    print(
-        f"[DATA] Loaded {len(HAZALS)} ghazals "
-        f"with {audio_count} audio entries."
-    )
+        audio = str(  
+            record.get(  
+                "Audio",  
+                ""  
+            )  
+        ).strip()  
 
+        author = str(  
+            record.get(  
+                "Author",  
+                "حافظ"  
+            )  
+        ).strip() or "حافظ"  
 
-# ==================================
-# Soroush API
-# ==================================
+        book = str(  
+            record.get(  
+                "Book",  
+                "غزلیات حافظ"  
+            )  
+        ).strip() or "غزلیات حافظ"  
+
+        result.append({  
+            "record_id": str(record_id),  
+            "author": author,  
+            "book": book,  
+            "poem": poem,  
+            "source": source,  
+            "title": title,  
+            "audio": audio  
+        })  
+
+HAZALS = result  
+
+audio_count = sum(  
+    1  
+    for item in HAZALS  
+    if item.get("audio")  
+)  
+
+print(  
+    f"[DATA] Loaded {len(HAZALS)} ghazals "  
+    f"with {audio_count} audio entries."  
+)
+
+==================================
+
+Soroush API
+
+==================================
 
 def splus_request(
-    method,
-    data=None,
-    files=None
+method,
+data=None,
+files=None
 ):
-    url = f"{API}/{method}"
 
-    start_time = time.time()
+url = f"{API}/{method}"  
 
-    try:
-        print(
-            f"[API] START {method}"
-        )
+start_time = time.time()  
 
-        response = get_session().post(
-            url,
-            data=data,
-            files=files,
-            timeout=REQUEST_TIMEOUT
-        )
+try:  
 
-        try:
-            elapsed = time.time() - start_time
+    print(  
+        f"[API] START {method}"  
+    )  
 
-            print(
-                f"[API] END {method} "
-                f"status={response.status_code} "
-                f"time={elapsed:.3f}s"
-            )
+    response = get_session().post(  
+        url,  
+        data=data,  
+        files=files,  
+        timeout=REQUEST_TIMEOUT  
+    )  
 
-            try:
-                return response.json()
+    try:  
 
-            except Exception:
-                print(
-                    "[API] Non-JSON response:",
-                    response.text[:500]
-                )
+        elapsed = time.time() - start_time  
 
-                return {
-                    "ok": response.ok,
-                    "status_code": response.status_code,
-                    "text": response.text
-                }
+        print(  
+            f"[API] END {method} "  
+            f"status={response.status_code} "  
+            f"time={elapsed:.3f}s"  
+        )  
 
-        finally:
-            response.close()
+        try:  
 
-    except Exception as e:
-        elapsed = time.time() - start_time
+            return response.json()  
 
-        print(
-            f"[API] ERROR {method} "
-            f"time={elapsed:.3f}s "
-            f"error={e}"
-        )
+        except Exception:  
 
-        return None
+            print(  
+                "[API] Non-JSON response:",  
+                response.text[:500]  
+            )  
 
+            return {  
+                "ok": response.ok,  
+                "status_code": response.status_code,  
+                "text": response.text  
+            }  
 
-def delete_message(
-    chat_id,
-    message_id
-):
-    return splus_request(
-        "deleteMessage",
-        data={
-            "chat_id": chat_id,
-            "message_id": message_id
-        }
-    )
+    finally:  
 
+        response.close()  
 
-def send_message(
-    chat_id,
-    text,
-    reply_markup=None
-):
-    data = {
-        "chat_id": chat_id,
-        "text": text,
-        "disable_web_page_preview": "true",
-        "parse_mode": "HTML"
-    }
+except Exception as e:  
 
-    if reply_markup is not None:
-        data["reply_markup"] = json.dumps(
-            reply_markup,
-            ensure_ascii=False
-        )
+    elapsed = time.time() - start_time  
 
-    return splus_request(
-        "sendMessage",
-        data=data
-    )
-
-
-def answer_callback_query(
-    callback_query_id
-):
-    return splus_request(
-        "answerCallbackQuery",
-        data={
-            "callback_query_id": callback_query_id
-        }
-    )
-
-
-# ==================================
-# Message Helpers
-# ==================================
-
-def split_message(
-    text,
-    max_length=MAX_MESSAGE_LENGTH
-):
-    if len(text) <= max_length:
-        return [text]
-
-    chunks = []
-    remaining = text
-
-    while len(remaining) > max_length:
-        cut = remaining.rfind(
-            "\n",
-            0,
-            max_length
-        )
-
-        if cut < 0:
-            cut = remaining.rfind(
-                " ",
-                0,
-                max_length
-            )
-
-        if cut < 0:
-            cut = max_length
-
-        chunks.append(
-            remaining[:cut].strip()
-        )
-
-        remaining = remaining[
-            cut:
-        ].strip()
-
-    if remaining:
-        chunks.append(
-            remaining
-        )
-
-    return chunks
-
-
-# ==================================
-# Ghazal Number
-# ==================================
-
-def get_ghazal_number(record):
-    source = str(
-        record.get(
-            "source",
-            ""
-        )
-    )
-
-    match = re.search(
-        r"/sh(\d+)",
-        source,
-        re.IGNORECASE
-    )
-
-    if match:
-        return match.group(1)
-
-    title = str(
-        record.get(
-            "title",
-            ""
-        )
-    )
-
-    match = re.search(
-        r"\d+",
-        title
-    )
-
-    if match:
-        return match.group(0)
-
-    record_id = str(
-        record.get(
-            "record_id",
-            ""
-        )
-    )
-
-    match = re.search(
-        r"\d+",
-        record_id
-    )
-
-    if match:
-        return match.group(0)
-
-    return record_id or "؟"
-
-
-# ==================================
-# Poem Formatting
-# ==================================
-
-def clean_poem(poem):
-    if not poem:
-        return ""
-
-    poem = str(
-        poem
-    )
-
-    poem = poem.replace(
-        "\r\n",
-        "\n"
-    )
-
-    poem = poem.replace(
-        "\r",
-        "\n"
-    )
-
-    poem = re.sub(
-        r"\n{3,}",
-        "\n\n",
-        poem
-    )
-
-    return poem.strip()
-
-
-def format_fortune(record):
-    number = get_ghazal_number(
-        record
-    )
-
-    poem = clean_poem(
-        record.get(
-            "poem",
-            ""
-        )
-    )
-
-    text = (
-        "فال حافظ\n"
-        f"شماره غزل {number}\n\n"
-        f"{poem}\n\n"
-        "<b>توجه : فال و طالع‌بینی جنبه سرگرمی دارد و "
-        "پیشنهاد نمی‌شود بر اساس آن تصمیمی گرفته شود.</b>\n\n"
-        f"{CHANNEL_URL} 🌱"
-    )
-
-    return text
-
-
-def get_fortune_inline_keyboard(record):
-    number = get_ghazal_number(
-        record
-    )
-
-    return {
-        "inline_keyboard": [
-            [
-                {
-                    "text": "🔮 نمایش تعبیر",
-                    "callback_data": (
-                        f"hafez_tabir:{number}"
-                    )
-                }
-            ]
-        ]
-    }
-
-
-def send_fortune(
-    chat_id,
-    record
-):
-    text = format_fortune(
-        record
-    )
-
-    chunks = split_message(
-        text
-    )
-
-    results = []
-
-    for index, chunk in enumerate(
-        chunks
-    ):
-        reply_markup = None
-
-        if index == len(chunks) - 1:
-            reply_markup = get_fortune_inline_keyboard(
-                record
-            )
-
-        result = send_message(
-            chat_id,
-            chunk,
-            reply_markup=reply_markup
-        )
-
-        results.append(
-            result
-        )
-
-    # فقط پاسخ واقعی API با ok=True موفق محسوب می‌شود
-    return all(
-        api_success(result)
-        for result in results
-    )
-
-
-def send_interpretation(
-    chat_id,
-    record
-):
-    interpretation = get_interpretation(
-        record
-    )
-
-    if interpretation:
-        text = (
-            "🌌 تعبیر\n\n"
-            f"{interpretation}"
-        )
-    else:
-        text = (
-            "🌌 تعبیر\n\n"
-            "بات تعبیری برای این غزل ندارد."
-        )
-
-    return send_message(
-        chat_id,
-        text,
-        reply_markup=FORTUNE_KEYBOARD
-    )
-
-
-# ==================================
-# Audio URL Extraction
-# ==================================
-
-def extract_audio_urls(
-    html,
-    base_url
-):
-    candidates = []
-
-    absolute_urls = re.findall(
-        r'https?://[^"\'>\s]+?\.(?:ogg|mp3)(?:\?[^"\'>\s]*)?',
-        html,
-        re.IGNORECASE
-    )
-
-    for url in absolute_urls:
-        url = url.replace(
-            "&amp;",
-            "&"
-        )
-
-        candidates.append(
-            url
-        )
-
-    relative_urls = re.findall(
-        r'["\']([^"\']+\.(?:ogg|mp3)(?:\?[^"\']*)?)["\']',
-        html,
-        re.IGNORECASE
-    )
-
-    for relative in relative_urls:
-        full_url = urljoin(
-            base_url,
-            relative
-        )
-
-        candidates.append(
-            full_url
-        )
-
-    unique = []
-
-    seen = set()
-
-    for url in candidates:
-        if url not in seen:
-            seen.add(url)
-
-            unique.append(
-                url
-            )
-
-    ganjoor = [
-        url
-        for url in unique
-        if "i.ganjoor.net" in url.lower()
-    ]
-
-    if ganjoor:
-        return ganjoor
-
-    return unique
-
-
-# ==================================
-# Resolve Audio From Source
-# ==================================
-
-def resolve_audio_from_source(
-    source_url
-):
-    if not source_url:
-        return None
-
-    cached = audio_url_cache_get(
-        source_url
-    )
-
-    if cached:
-        if check_audio_url(
-            cached
-        ):
-            return cached
-
-        print(
-            "[AUDIO] Cached URL is no longer valid."
-        )
-
-    lock = get_audio_resolve_lock(
-        source_url
-    )
-
-    with lock:
-        cached = audio_url_cache_get(
-            source_url
-        )
-
-        if cached:
-            if check_audio_url(
-                cached
-            ):
-                return cached
-
-            print(
-                "[AUDIO] Cached URL is no longer valid."
-            )
-
-        try:
-            print(
-                f"[AUDIO] Resolving source: "
-                f"{source_url}"
-            )
-
-            response = get_session().get(
-                source_url,
-                timeout=REQUEST_TIMEOUT
-            )
-
-            try:
-                if response.status_code != 200:
-                    print(
-                        "[AUDIO] Source page status:",
-                        response.status_code
-                    )
-
-                    return None
-
-                candidates = extract_audio_urls(
-                    response.text,
-                    source_url
-                )
-
-            finally:
-                response.close()
-
-            if not candidates:
-                print(
-                    "[AUDIO] No audio URL found."
-                )
-
-                return None
-
-            ogg_candidates = [
-                url
-                for url in candidates
-                if ".ogg" in url.lower()
-            ]
-
-            ordered_candidates = (
-                ogg_candidates
-                + [
-                    url
-                    for url in candidates
-                    if url not in ogg_candidates
-                ]
-            )
-
-            for candidate in ordered_candidates:
-                if negative_cache_get(
-                    candidate
-                ):
-                    continue
-
-                print(
-                    f"[AUDIO] Checking candidate: "
-                    f"{candidate}"
-                )
-
-                if check_audio_url(
-                    candidate
-                ):
-                    audio_url_cache_put(
-                        source_url,
-                        candidate
-                    )
-
-                    print(
-                        f"[AUDIO] Resolved: "
-                        f"{candidate}"
-                    )
-
-                    return candidate
-
-                negative_cache_put(
-                    candidate
-                )
-
-                print(
-                    f"[AUDIO] Invalid candidate: "
-                    f"{candidate}"
-                )
-
-            print(
-                "[AUDIO] No valid audio candidate found."
-            )
-
-            return None
-
-        except Exception as e:
-            print(
-                "[AUDIO] Resolve error:",
-                e
-            )
-
-            return None
-
-
-# ==================================
-# Check Audio URL
-# ==================================
-
-def check_audio_url(
-    audio_url
-):
-    if not audio_url:
-        return False
-
-    try:
-        response = get_session().get(
-            audio_url,
-            stream=True,
-            timeout=REQUEST_TIMEOUT
-        )
-
-        try:
-            return response.status_code == 200
-
-        finally:
-            response.close()
-
-    except Exception as e:
-        print(
-            "[AUDIO] Check error:",
-            e
-        )
-
-        return False
-
-
-# ==================================
-# Resolve Final Audio
-# ==================================
-
-def resolve_final_audio_url(record):
-    audio_url = str(
-        record.get(
-            "audio",
-            ""
-        )
-    ).strip()
-
-    if audio_url:
-        if not negative_cache_get(
-            audio_url
-        ):
-            if check_audio_url(
-                audio_url
-            ):
-                return audio_url
-
-            negative_cache_put(
-                audio_url
-            )
-
-    source_url = str(
-        record.get(
-            "source",
-            ""
-        )
-    ).strip()
-
-    if source_url:
-        return resolve_audio_from_source(
-            source_url
-        )
+    print(  
+        f"[API] ERROR {method} "  
+        f"time={elapsed:.3f}s "  
+        f"error={e}"  
+    )  
 
     return None
 
+def delete_message(
+chat_id,
+message_id
+):
 
-# ==================================
-# Download Audio
-# ==================================
+return splus_request(  
+    "deleteMessage",  
+    data={  
+        "chat_id": chat_id,  
+        "message_id": message_id  
+    }  
+)
+
+def send_message(
+chat_id,
+text,
+reply_markup=None
+):
+
+data = {  
+    "chat_id": chat_id,  
+    "text": text,  
+    "disable_web_page_preview": "true",  
+    "parse_mode": "HTML"  
+}  
+
+if reply_markup is not None:  
+
+    data["reply_markup"] = json.dumps(  
+        reply_markup,  
+        ensure_ascii=False  
+    )  
+
+return splus_request(  
+    "sendMessage",  
+    data=data  
+)
+
+==================================
+
+Message Helpers
+
+==================================
+
+def split_message(
+text,
+max_length=MAX_MESSAGE_LENGTH
+):
+
+if len(text) <= max_length:  
+    return [text]  
+
+chunks = []  
+remaining = text  
+
+while len(remaining) > max_length:  
+
+    cut = remaining.rfind(  
+        "\n",  
+        0,  
+        max_length  
+    )  
+
+    if cut < 0:  
+
+        cut = remaining.rfind(  
+            " ",  
+            0,  
+            max_length  
+        )  
+
+    if cut < 0:  
+
+        cut = max_length  
+
+    chunks.append(  
+        remaining[:cut].strip()  
+    )  
+
+    remaining = remaining[  
+        cut:  
+    ].strip()  
+
+if remaining:  
+
+    chunks.append(  
+        remaining  
+    )  
+
+return chunks
+
+==================================
+
+Ghazal Number
+
+==================================
+
+def get_ghazal_number(record):
+
+source = str(  
+    record.get(  
+        "source",  
+        ""  
+    )  
+)  
+
+match = re.search(  
+    r"/sh(\d+)",  
+    source,  
+    re.IGNORECASE  
+)  
+
+if match:  
+
+    return match.group(1)  
+
+title = str(  
+    record.get(  
+        "title",  
+        ""  
+    )  
+)  
+
+match = re.search(  
+    r"\d+",  
+    title  
+)  
+
+if match:  
+
+    return match.group(0)  
+
+record_id = str(  
+    record.get(  
+        "record_id",  
+        ""  
+    )  
+)  
+
+match = re.search(  
+    r"\d+",  
+    record_id  
+)  
+
+if match:  
+
+    return match.group(0)  
+
+return record_id or "؟"
+
+==================================
+
+Poem Formatting
+
+==================================
+
+def clean_poem(poem):
+
+if not poem:  
+    return ""  
+
+poem = str(  
+    poem  
+)  
+
+poem = poem.replace(  
+    "\r\n",  
+    "\n"  
+)  
+
+poem = poem.replace(  
+    "\r",  
+    "\n"  
+)  
+
+poem = re.sub(  
+    r"\n{3,}",  
+    "\n\n",  
+    poem  
+)  
+
+return poem.strip()
+
+def format_fortune(record):
+
+number = get_ghazal_number(  
+    record  
+)  
+
+poem = clean_poem(  
+    record.get(  
+        "poem",  
+        ""  
+    )  
+)  
+
+interpretation = get_interpretation(  
+    record  
+)  
+
+text = (  
+    "فال حافظ\n"  
+    f"شماره غزل {number}\n\n"  
+    f"{poem}\n\n"  
+    "────────────\n\n"  
+    "🌌 تعبیر\n\n"  
+)  
+
+if interpretation:  
+
+    text += (  
+        f"{interpretation}\n\n"  
+    )  
+
+else:  
+
+    text += (  
+        "بات تعبیری برای این غزل ندارد.\n\n"  
+    )  
+
+# هشدار سرگرمی با فونت برجسته  
+
+text += (  
+    "<b>توجه : فال و طالع‌بینی جنبه سرگرمی دارد و "  
+    "پیشنهاد نمی‌شود بر اساس آن تصمیمی گرفته شود.</b>\n\n"  
+)  
+
+text += (  
+    f"{CHANNEL_URL} 🌱"  
+)  
+
+return text
+
+def send_fortune(
+chat_id,
+record
+):
+
+text = format_fortune(  
+    record  
+)  
+
+chunks = split_message(  
+    text  
+)  
+
+results = []  
+
+for chunk in chunks:  
+
+    result = send_message(  
+        chat_id,  
+        chunk,  
+        reply_markup=FORTUNE_KEYBOARD  
+    )  
+
+    results.append(  
+        result  
+    )  
+
+# فقط پاسخ واقعی API با ok=True موفق محسوب می‌شود  
+
+return all(  
+    api_success(result)  
+    for result in results  
+)
+
+==================================
+
+Audio URL Extraction
+
+==================================
+
+def extract_audio_urls(
+html,
+base_url
+):
+
+candidates = []  
+
+absolute_urls = re.findall(  
+    r'https?://[^"\'>\s]+?\.(?:ogg|mp3)(?:\?[^"\'>\s]*)?',  
+    html,  
+    re.IGNORECASE  
+)  
+
+for url in absolute_urls:  
+
+    url = url.replace(  
+        "&amp;",  
+        "&"  
+    )  
+
+    candidates.append(  
+        url  
+    )  
+
+relative_urls = re.findall(  
+    r'["\']([^"\']+\.(?:ogg|mp3)(?:\?[^"\']*)?)["\']',  
+    html,  
+    re.IGNORECASE  
+)  
+
+for relative in relative_urls:  
+
+    full_url = urljoin(  
+        base_url,  
+        relative  
+    )  
+
+    candidates.append(  
+        full_url  
+    )  
+
+unique = []  
+
+seen = set()  
+
+for url in candidates:  
+
+    if url not in seen:  
+
+        seen.add(  
+            url  
+        )  
+
+        unique.append(  
+            url  
+        )  
+
+ganjoor = [  
+    url  
+    for url in unique  
+    if "i.ganjoor.net" in url.lower()  
+]  
+
+if ganjoor:  
+
+    return ganjoor  
+
+return unique
+
+==================================
+
+Resolve Audio From Source
+
+==================================
+
+def resolve_audio_from_source(
+source_url
+):
+
+if not source_url:  
+    return None  
+
+cached = audio_url_cache_get(  
+    source_url  
+)  
+
+if cached:  
+
+    if check_audio_url(  
+        cached  
+    ):  
+
+        return cached  
+
+    print(  
+        "[AUDIO] Cached URL is no longer valid."  
+    )  
+
+lock = get_audio_resolve_lock(  
+    source_url  
+)  
+
+with lock:  
+
+    cached = audio_url_cache_get(  
+        source_url  
+    )  
+
+    if cached:  
+
+        if check_audio_url(  
+            cached  
+        ):  
+
+            return cached  
+
+        print(  
+            "[AUDIO] Cached URL is no longer valid."  
+        )  
+
+    try:  
+
+        print(  
+            f"[AUDIO] Resolving source: "  
+            f"{source_url}"  
+        )  
+
+        response = get_session().get(  
+            source_url,  
+            timeout=REQUEST_TIMEOUT  
+        )  
+
+        try:  
+
+            if response.status_code != 200:  
+
+                print(  
+                    "[AUDIO] Source page status:",  
+                    response.status_code  
+                )  
+
+                return None  
+
+            candidates = extract_audio_urls(  
+                response.text,  
+                source_url  
+            )  
+
+        finally:  
+
+            response.close()  
+
+        if not candidates:  
+
+            print(  
+                "[AUDIO] No audio URL found."  
+            )  
+
+            return None  
+
+        ogg_candidates = [  
+            url  
+            for url in candidates  
+            if ".ogg" in url.lower()  
+        ]  
+
+        ordered_candidates = (  
+            ogg_candidates  
+            + [  
+                url  
+                for url in candidates  
+                if url not in ogg_candidates  
+            ]  
+        )  
+
+        for candidate in ordered_candidates:  
+
+            if negative_cache_get(  
+                candidate  
+            ):  
+
+                continue  
+
+            print(  
+                f"[AUDIO] Checking candidate: "  
+                f"{candidate}"  
+            )  
+
+            if check_audio_url(  
+                candidate  
+            ):  
+
+                audio_url_cache_put(  
+                    source_url,  
+                    candidate  
+                )  
+
+                print(  
+                    f"[AUDIO] Resolved: "  
+                    f"{candidate}"  
+                )  
+
+                return candidate  
+
+            negative_cache_put(  
+                candidate  
+            )  
+
+            print(  
+                f"[AUDIO] Invalid candidate: "  
+                f"{candidate}"  
+            )  
+
+        print(  
+            "[AUDIO] No valid audio candidate found."  
+        )  
+
+        return None  
+
+    except Exception as e:  
+
+        print(  
+            "[AUDIO] Resolve error:",  
+            e  
+        )  
+
+        return None
+
+==================================
+
+Check Audio URL
+
+==================================
+
+def check_audio_url(
+audio_url
+):
+
+if not audio_url:  
+    return False  
+
+try:  
+
+    response = get_session().get(  
+        audio_url,  
+        stream=True,  
+        timeout=REQUEST_TIMEOUT  
+    )  
+
+    try:  
+
+        return response.status_code == 200  
+
+    finally:  
+
+        response.close()  
+
+except Exception as e:  
+
+    print(  
+        "[AUDIO] Check error:",  
+        e  
+    )  
+
+    return False
+
+==================================
+
+Resolve Final Audio
+
+==================================
+
+def resolve_final_audio_url(record):
+
+audio_url = str(  
+    record.get(  
+        "audio",  
+        ""  
+    )  
+).strip()  
+
+if audio_url:  
+
+    if not negative_cache_get(  
+        audio_url  
+    ):  
+
+        if check_audio_url(  
+            audio_url  
+        ):  
+
+            return audio_url  
+
+        negative_cache_put(  
+            audio_url  
+        )  
+
+source_url = str(  
+    record.get(  
+        "source",  
+        ""  
+    )  
+).strip()  
+
+if source_url:  
+
+    return resolve_audio_from_source(  
+        source_url  
+    )  
+
+return None
+
+==================================
+
+Download Audio
+
+==================================
 
 def download_audio(
-    audio_url
+audio_url
 ):
-    if not audio_url:
+
+if not audio_url:  
+    return None  
+
+cached = audio_cache_get(  
+    audio_url  
+)  
+
+if cached is not None:  
+
+    print(  
+        "[AUDIO] Cache HIT"  
+    )  
+
+    return cached  
+
+if negative_cache_get(  
+    audio_url  
+):  
+
+    print(  
+        "[AUDIO] Negative cache HIT"  
+    )  
+
+    return None  
+
+lock = get_audio_download_lock(  
+    audio_url  
+)  
+
+with lock:  
+
+    cached = audio_cache_get(  
+        audio_url  
+    )  
+
+    if cached is not None:  
+
+        print(  
+            "[AUDIO] Cache HIT after lock"  
+        )  
+
+        return cached  
+
+    try:  
+
+        print(  
+            f"[AUDIO] Downloading: "  
+            f"{audio_url}"  
+        )  
+
+        response = get_session().get(  
+            audio_url,  
+            timeout=REQUEST_TIMEOUT  
+        )  
+
+        try:  
+
+            if response.status_code == 404:  
+
+                print(  
+                    "[AUDIO] 404"  
+                )  
+
+                negative_cache_put(  
+                    audio_url  
+                )  
+
+                return None  
+
+            if response.status_code != 200:  
+
+                print(  
+                    "[AUDIO] Download status:",  
+                    response.status_code  
+                )  
+
+                return None  
+
+            data = response.content  
+
+        finally:  
+
+            response.close()  
+
+        if not data:  
+
+            print(  
+                "[AUDIO] Empty audio response."  
+            )  
+
+            return None  
+
+        audio_cache_put(  
+            audio_url,  
+            data  
+        )  
+
+        print(  
+            f"[AUDIO] Downloaded "  
+            f"{len(data) / 1024:.1f} KB"  
+        )  
+
+        return data  
+
+    except Exception as e:  
+
+        print(  
+            "[AUDIO] Download error:",  
+            e  
+        )  
+
         return None
 
-    cached = audio_cache_get(
-        audio_url
-    )
+==================================
 
-    if cached is not None:
-        print(
-            "[AUDIO] Cache HIT"
-        )
+Audio Metadata
 
-        return cached
-
-    if negative_cache_get(
-        audio_url
-    ):
-        print(
-            "[AUDIO] Negative cache HIT"
-        )
-
-        return None
-
-    lock = get_audio_download_lock(
-        audio_url
-    )
-
-    with lock:
-        cached = audio_cache_get(
-            audio_url
-        )
-
-        if cached is not None:
-            print(
-                "[AUDIO] Cache HIT after lock"
-            )
-
-            return cached
-
-        try:
-            print(
-                f"[AUDIO] Downloading: "
-                f"{audio_url}"
-            )
-
-            response = get_session().get(
-                audio_url,
-                timeout=REQUEST_TIMEOUT
-            )
-
-            try:
-                if response.status_code == 404:
-                    print(
-                        "[AUDIO] 404"
-                    )
-
-                    negative_cache_put(
-                        audio_url
-                    )
-
-                    return None
-
-                if response.status_code != 200:
-                    print(
-                        "[AUDIO] Download status:",
-                        response.status_code
-                    )
-
-                    return None
-
-                data = response.content
-
-            finally:
-                response.close()
-
-            if not data:
-                print(
-                    "[AUDIO] Empty audio response."
-                )
-
-                return None
-
-            audio_cache_put(
-                audio_url,
-                data
-            )
-
-            print(
-                f"[AUDIO] Downloaded "
-                f"{len(data) / 1024:.1f} KB"
-            )
-
-            return data
-
-        except Exception as e:
-            print(
-                "[AUDIO] Download error:",
-                e
-            )
-
-            return None
-
-
-# ==================================
-# Audio Metadata
-# ==================================
+==================================
 
 def get_audio_title(record):
-    number = get_ghazal_number(
-        record
-    )
 
-    return f"غزل شمارهٔ {number}"
+number = get_ghazal_number(  
+    record  
+)  
 
+return f"غزل شمارهٔ {number}"
 
 def get_audio_performer(record):
-    return "شعرکده سروش پلاس"
 
+return "شعرکده سروش پلاس"
 
-# ==================================
-# Send Audio
-# ==================================
+==================================
+
+Send Audio
+
+==================================
 
 def send_audio(
-    chat_id,
-    record
+chat_id,
+record
 ):
-    audio_url = resolve_final_audio_url(
-        record
-    )
 
-    if not audio_url:
-        print(
-            "[AUDIO] No audio URL available."
-        )
+audio_url = resolve_final_audio_url(  
+    record  
+)  
 
-        return None
+if not audio_url:  
 
-    audio_data = download_audio(
-        audio_url
-    )
+    print(  
+        "[AUDIO] No audio URL available."  
+    )  
 
-    if not audio_data:
-        print(
-            "[AUDIO] Audio download failed."
-        )
+    return None  
 
-        return None
+audio_data = download_audio(  
+    audio_url  
+)  
 
-    lower_url = audio_url.lower()
+if not audio_data:  
 
-    if ".mp3" in lower_url:
-        extension = "mp3"
-        mime_type = "audio/mpeg"
+    print(  
+        "[AUDIO] Audio download failed."  
+    )  
 
-    else:
-        extension = "ogg"
-        mime_type = "audio/ogg"
+    return None  
 
-    number = get_ghazal_number(
-        record
-    )
+lower_url = audio_url.lower()  
 
-    filename = (
-        f"غزل {number} - حافظ - گنجور."
-        f"{extension}"
-    )
+if ".mp3" in lower_url:  
 
-    audio_title = get_audio_title(
-        record
-    )
+    extension = "mp3"  
+    mime_type = "audio/mpeg"  
 
-    audio_performer = get_audio_performer(
-        record
-    )
+else:  
 
-    print(
-        f"[AUDIO] Sending Audio | "
-        f"filename={filename} | "
-        f"title={audio_title} | "
-        f"performer={audio_performer}"
-    )
+    extension = "ogg"  
+    mime_type = "audio/ogg"  
 
-    files = {
-        "audio": (
-            filename,
-            audio_data,
-            mime_type
-        )
-    }
+number = get_ghazal_number(  
+    record  
+)  
 
-    return splus_request(
-        "sendAudio",
-        data={
-            "chat_id": chat_id,
-            "performer": audio_performer,
-            "title": audio_title,
-        },
-        files=files
-    )
+filename = (  
+    f"غزل {number} - حافظ - گنجور."  
+    f"{extension}"  
+)  
 
+audio_title = get_audio_title(  
+    record  
+)  
 
-# ==================================
-# Chat Control State
-# ==================================
+audio_performer = get_audio_performer(  
+    record  
+)  
+
+print(  
+    f"[AUDIO] Sending Audio | "  
+    f"filename={filename} | "  
+    f"title={audio_title} | "  
+    f"performer={audio_performer}"  
+)  
+
+files = {  
+    "audio": (  
+        filename,  
+        audio_data,  
+        mime_type  
+    )  
+}  
+
+return splus_request(  
+    "sendAudio",  
+    data={  
+        "chat_id": chat_id,  
+        "performer": audio_performer,  
+        "title": audio_title,  
+    },  
+    files=files  
+)
+
+==================================
+
+Chat Control State
+
+==================================
 
 CHAT_CONTROL_MESSAGES = {}
 
 CHAT_CONTROL_LOCK = threading.RLock()
 
-
 def set_control_message(
-    chat_id,
-    message_id
+chat_id,
+message_id
 ):
-    with CHAT_CONTROL_LOCK:
-        CHAT_CONTROL_MESSAGES[
-            str(chat_id)
-        ] = message_id
 
+with CHAT_CONTROL_LOCK:  
+
+    CHAT_CONTROL_MESSAGES[  
+        str(chat_id)  
+    ] = message_id
 
 def get_control_message(
-    chat_id
+chat_id
 ):
-    with CHAT_CONTROL_LOCK:
-        return CHAT_CONTROL_MESSAGES.get(
-            str(chat_id)
-        )
 
+with CHAT_CONTROL_LOCK:  
+
+    return CHAT_CONTROL_MESSAGES.get(  
+        str(chat_id)  
+    )
 
 def remove_control_message(
-    chat_id
+chat_id
 ):
-    with CHAT_CONTROL_LOCK:
-        return CHAT_CONTROL_MESSAGES.pop(
-            str(chat_id),
-            None
-        )
 
+with CHAT_CONTROL_LOCK:  
+
+    return CHAT_CONTROL_MESSAGES.pop(  
+        str(chat_id),  
+        None  
+    )
 
 def clear_control_message(
-    chat_id
+chat_id
 ):
-    with CHAT_CONTROL_LOCK:
-        CHAT_CONTROL_MESSAGES.pop(
-            str(chat_id),
-            None
-        )
 
+with CHAT_CONTROL_LOCK:  
 
-# ==================================
-# Fortune Processing
-# ==================================
+    CHAT_CONTROL_MESSAGES.pop(  
+        str(chat_id),  
+        None  
+    )
+
+==================================
+
+Fortune Processing
+
+==================================
 
 def process_fortune(
-    chat_id,
-    fortune_message_id
+chat_id,
+fortune_message_id
 ):
-    # قفل فقط برای همین chat_id است.
-    # کاربران دیگر می‌توانند همزمان فال بگیرند.
 
-    fortune_lock = get_fortune_lock(
-        chat_id
-    )
+# قفل فقط برای همین chat_id است.  
+# کاربران دیگر می‌توانند همزمان فال بگیرند.  
 
-    acquired = fortune_lock.acquire(
-        blocking=False
-    )
+fortune_lock = get_fortune_lock(  
+    chat_id  
+)  
 
-    if not acquired:
-        print(
-            f"[FORTUNE] Ignored concurrent "
-            f"request for chat={chat_id}"
-        )
+acquired = fortune_lock.acquire(  
+    blocking=False  
+)  
 
-        return
+if not acquired:  
 
-    try:
-        if not HAZALS:
-            send_message(
-                chat_id,
-                "متأسفانه مجموعه غزل‌های حافظ در دسترس نیست.",
-                reply_markup=MAIN_KEYBOARD
-            )
+    print(  
+        f"[FORTUNE] Ignored concurrent "  
+        f"request for chat={chat_id}"  
+    )  
 
-            return
+    return  
 
-        record = random.choice(
-            HAZALS
-        )
+try:  
 
-        number = get_ghazal_number(
-            record
-        )
+    if not HAZALS:  
 
-        print(
-            f"[FORTUNE] Selected ghazal #{number}"
-        )
+        send_message(  
+            chat_id,  
+            "متأسفانه مجموعه غزل‌های حافظ در دسترس نیست.",  
+            reply_markup=MAIN_KEYBOARD  
+        )  
 
-        interpretation = get_interpretation(
-            record
-        )
+        return  
 
-        if interpretation:
-            print(
-                f"[TABIR] Found interpretation "
-                f"for ghazal #{number}"
-            )
+    record = random.choice(  
+        HAZALS  
+    )  
 
-        else:
-            print(
-                f"[TABIR] No interpretation "
-                f"for ghazal #{number}"
-            )
+    number = get_ghazal_number(  
+        record  
+    )  
 
-        success = send_fortune(
-            chat_id,
-            record
-        )
+    print(  
+        f"[FORTUNE] Selected ghazal #{number}"  
+    )  
 
-        if success:
-            old_control = get_control_message(
-                chat_id
-            )
+    interpretation = get_interpretation(  
+        record  
+    )  
 
-            if old_control:
-                delete_message(
-                    chat_id,
-                    old_control
-                )
+    if interpretation:  
 
-            if fortune_message_id:
-                delete_message(
-                    chat_id,
-                    fortune_message_id
-                )
+        print(  
+            f"[TABIR] Found interpretation "  
+            f"for ghazal #{number}"  
+        )  
 
-            clear_control_message(
-                chat_id
-            )
+    else:  
 
-            # فقط بعد از ارسال موفق فال، صوت ارسال می‌شود.
+        print(  
+            f"[TABIR] No interpretation "  
+            f"for ghazal #{number}"  
+        )  
 
-            send_audio(
-                chat_id,
-                record
-            )
+    success = send_fortune(  
+        chat_id,  
+        record  
+    )  
 
-    except Exception as e:
-        print(
-            "[FORTUNE] ERROR:",
-            e
-        )
+    if success:  
 
-    finally:
-        fortune_lock.release()
+        old_control = get_control_message(  
+            chat_id  
+        )  
 
+        if old_control:  
 
-# ==================================
-# Webhook
-# ==================================
+            delete_message(  
+                chat_id,  
+                old_control  
+            )  
+
+        if fortune_message_id:  
+
+            delete_message(  
+                chat_id,  
+                fortune_message_id  
+            )  
+
+        clear_control_message(  
+            chat_id  
+        )  
+
+        # فقط بعد از ارسال موفق فال، صوت ارسال می‌شود.  
+
+        send_audio(  
+            chat_id,  
+            record  
+        )  
+
+except Exception as e:  
+
+    print(  
+        "[FORTUNE] ERROR:",  
+        e  
+    )  
+
+finally:  
+
+    fortune_lock.release()
+
+==================================
+
+Webhook
+
+==================================
 
 @app.route(
-    "/webhook",
-    methods=["POST"]
+"/webhook",
+methods=["POST"]
 )
 def webhook():
-    try:
-        update = request.get_json(
-            silent=True
-        ) or {}
 
-        # ------------------------------
-        # Callback Query
-        # ------------------------------
+try:  
 
-        callback_query = update.get(
-            "callback_query"
-        )
+    update = request.get_json(  
+        silent=True  
+    ) or {}  
 
-        if callback_query:
-            callback_id = callback_query.get(
-                "id"
-            )
+    message = update.get(  
+        "message"  
+    ) or update.get(  
+        "edited_message"  
+    )  
 
-            callback_data = str(
-                callback_query.get(
-                    "data",
-                    ""
-                )
-            ).strip()
+    if not message:  
 
-            callback_message = (
-                callback_query.get(
-                    "message"
-                )
-                or {}
-            )
+        return "ok"  
 
-            callback_chat = (
-                callback_message.get(
-                    "chat"
-                )
-                or {}
-            )
+    chat = message.get(  
+        "chat"  
+    ) or {}  
 
-            callback_chat_id = callback_chat.get(
-                "id"
-            )
+    chat_id = chat.get(  
+        "id"  
+    )  
 
-            if callback_id:
-                answer_callback_query(
-                    callback_id
-                )
+    if chat_id is None:  
 
-            if (
-                callback_data.startswith(
-                    "hafez_tabir:"
-                )
-                and callback_chat_id is not None
-            ):
-                ghazal_number = (
-                    callback_data.split(
-                        ":",
-                        1
-                    )[1].strip()
-                )
+        return "ok"  
 
-                record = None
+    text = str(  
+        message.get(  
+            "text",  
+            ""  
+        )  
+    ).strip()  
 
-                for item in HAZALS:
-                    if str(
-                        get_ghazal_number(item)
-                    ) == ghazal_number:
-                        record = item
-                        break
+    message_id = message.get(  
+        "message_id"  
+    )  
 
-                if record is not None:
-                    send_interpretation(
-                        callback_chat_id,
-                        record
-                    )
+    # ------------------------------  
+    # /start  
+    # ------------------------------  
 
-            return "ok"
+    if text == "/start":  
 
-        message = (
-            update.get(
-                "message"
-            )
-            or update.get(
-                "edited_message"
-            )
-        )
+        welcome_text = (  
+            "🌿 به فال حافظ خوش آمدید.\n\n"  
+            "برای گرفتن فال، روی دکمه "  
+            "«📜 فال حافظ» بزنید.\n\n"  
+            "هر بار یک غزل تصادفی از "  
+            "غزلیات حافظ برای شما انتخاب می‌شود."  
+        )  
 
-        if not message:
-            return "ok"
+        send_message(  
+            chat_id,  
+            welcome_text,  
+            reply_markup=MAIN_KEYBOARD  
+        )  
 
-        chat = (
-            message.get(
-                "chat"
-            )
-            or {}
-        )
+        if message_id:  
 
-        chat_id = chat.get(
-            "id"
-        )
+            delete_message(  
+                chat_id,  
+                message_id  
+            )  
 
-        if chat_id is None:
-            return "ok"
+        return "ok"  
 
-        text = str(
-            message.get(
-                "text",
-                ""
-            )
-        ).strip()
+    # ------------------------------  
+    # Repeat Fortune  
+    # ------------------------------  
 
-        message_id = message.get(
-            "message_id"
-        )
+    if text == "🌿 یک فال دیگر":  
 
-        # ------------------------------
-        # /start
-        # ------------------------------
+        if message_id:  
 
-        if text == "/start":
-            welcome_text = (
-                "🌿 به فال حافظ خوش آمدید.\n\n"
-                "برای گرفتن فال، روی دکمه "
-                "«📜 فال حافظ» بزنید.\n\n"
-                "هر بار یک غزل تصادفی از "
-                "غزلیات حافظ برای شما انتخاب می‌شود."
-            )
+            delete_message(  
+                chat_id,  
+                message_id  
+            )  
 
-            send_message(
-                chat_id,
-                welcome_text,
-                reply_markup=MAIN_KEYBOARD
-            )
+        result = send_message(  
+            chat_id,  
+            "🌿 نیت کنید و روی «📜 فال حافظ» بزنید.",  
+            reply_markup=MAIN_KEYBOARD  
+        )  
 
-            if message_id:
-                delete_message(
-                    chat_id,
-                    message_id
-                )
+        if result:  
 
-            return "ok"
+            sent_message_id = None  
 
-        # ------------------------------
-        # Repeat Fortune
-        # ------------------------------
+            if isinstance(  
+                result,  
+                dict  
+            ):  
 
-        if text == "🌿 یک فال دیگر":
-            if message_id:
-                delete_message(
-                    chat_id,
-                    message_id
-                )
+                result_data = result.get(  
+                    "result"  
+                )  
 
-            result = send_message(
-                chat_id,
-                "🌿 نیت کنید و روی «📜 فال حافظ» بزنید.",
-                reply_markup=MAIN_KEYBOARD
-            )
+                if isinstance(  
+                    result_data,  
+                    dict  
+                ):  
 
-            if result:
-                sent_message_id = None
+                    sent_message_id = (  
+                        result_data.get(  
+                            "message_id"  
+                        )  
+                    )  
 
-                if isinstance(
-                    result,
-                    dict
-                ):
-                    result_data = result.get(
-                        "result"
-                    )
+            if sent_message_id:  
 
-                    if isinstance(
-                        result_data,
-                        dict
-                    ):
-                        sent_message_id = (
-                            result_data.get(
-                                "message_id"
-                            )
-                        )
+                set_control_message(  
+                    chat_id,  
+                    sent_message_id  
+                )  
 
-                if sent_message_id:
-                    set_control_message(
-                        chat_id,
-                        sent_message_id
-                    )
+        return "ok"  
 
-            return "ok"
+    # ------------------------------  
+    # Fortune  
+    # ------------------------------  
 
-        # ------------------------------
-        # Fortune
-        # ------------------------------
+    if text == "📜 فال حافظ":  
 
-        if text == "📜 فال حافظ":
-            thread = threading.Thread(
-                target=process_fortune,
-                args=(
-                    chat_id,
-                    message_id
-                ),
-                daemon=True
-            )
+        thread = threading.Thread(  
+            target=process_fortune,  
+            args=(  
+                chat_id,  
+                message_id  
+            ),  
+            daemon=True  
+        )  
 
-            thread.start()
+        thread.start()  
 
-            return "ok"
+        return "ok"  
 
-        # ------------------------------
-        # Poetry Card Bot
-        # ------------------------------
+    # ------------------------------  
+    # Poetry Card Bot  
+    # ------------------------------  
 
-        if text == "🎨 ساختن کارت شعر":
-            if message_id:
-                delete_message(
-                    chat_id,
-                    message_id
-                )
+    if text == "🎨 ساختن کارت شعر":  
 
-            send_message(
-                chat_id,
-                (
-                    "🎨 <a href=\"http://splus.ir/PoetryCardBot\">کارت شعر</a>\n\n"
-                    "شعر مورد علاقه‌تان را به یک کارت شعر زیبا و اختصاصی تبدیل کنید. ✨\n\n"
-                    "برای ساخت کارت، وارد بات "
-                    "<a href=\"http://splus.ir/PoetryCardBot\">کارت شعر</a> شوید.\n\n"
-                    "🔗 <a href=\"http://splus.ir/PoetryCardBot\">http://splus.ir/PoetryCardBot</a>"
-                ),
-                reply_markup=MAIN_KEYBOARD
-            )
+        if message_id:  
 
-            return "ok"
+            delete_message(  
+                chat_id,  
+                message_id  
+            )  
 
-        # ------------------------------
-        # About
-        # ------------------------------
+        send_message(  
+            chat_id,  
+            (  
+                "🎨 <a href=\"http://splus.ir/PoetryCardBot\">کارت شعر</a>\n\n"  
+                "شعر مورد علاقه‌تان را به یک کارت شعر زیبا و اختصاصی تبدیل کنید. ✨\n\n"  
+                "برای ساخت کارت، وارد بات "  
+                "<a href=\"http://splus.ir/PoetryCardBot\">کارت شعر</a> شوید.\n\n"  
+                "🔗 <a href=\"http://splus.ir/PoetryCardBot\">http://splus.ir/PoetryCardBot</a>"  
+            ),  
+            reply_markup=MAIN_KEYBOARD  
+        )  
 
-        if text == "🌿 درباره ما":
-            if message_id:
-                delete_message(
-                    chat_id,
-                    message_id
-                )
+        return "ok"  
 
-            send_message(
-                chat_id,
-                ABOUT_TEXT,
-                reply_markup=MAIN_KEYBOARD
-            )
+    # ------------------------------  
+    # About  
+    # ------------------------------  
 
-            return "ok"
+    if text == "🌿 درباره ما":  
 
-        # ------------------------------
-        # Contact Admin
-        # ------------------------------
+        if message_id:  
 
-        if text == "💬 ارتباط با مدیر":
-            if message_id:
-                delete_message(
-                    chat_id,
-                    message_id
-                )
+            delete_message(  
+                chat_id,  
+                message_id  
+            )  
 
-            send_message(
-                chat_id,
-                (
-                    "💬 <a href=\"http://splus.ir/PayamNashenasBot\">پیام ناشناس شعرکده</a>\n\n"
-                    "اگر پیشنهاد، انتقاد یا پیامی برای مدیر بات دارید، "
-                    "می‌توانید از طریق "
-                    "<a href=\"http://splus.ir/PayamNashenasBot\">پیام ناشناس شعرکده</a> "
-                    "با ما در ارتباط باشید.\n\n"
-                    "🔗 <a href=\"http://splus.ir/PayamNashenasBot\">http://splus.ir/PayamNashenasBot</a>"
-                ),
-                reply_markup=MAIN_KEYBOARD
-            )
+        send_message(  
+            chat_id,  
+            ABOUT_TEXT,  
+            reply_markup=MAIN_KEYBOARD  
+        )  
 
-            return "ok"
+        return "ok"  
 
-        # ------------------------------
-        # Poetry Channel
-        # ------------------------------
+    # ------------------------------  
+    # Contact Admin  
+    # ------------------------------  
 
-        if text == "📣 کانال شعرکده":
-            if message_id:
-                delete_message(
-                    chat_id,
-                    message_id
-                )
+    if text == "💬 ارتباط با مدیر":  
 
-            send_message(
-                chat_id,
-                (
-                    "📣 <a href=\"https://splus.ir/life_m23\">کانال شعرکده</a>\n\n"
-                    "برای ورود مستقیم به <a href=\"https://splus.ir/life_m23\">کانال شعرکده</a> "
-                    "از لینک زیر استفاده کنید.\n\n"
-                    "🔗 <a href=\"https://splus.ir/life_m23\">https://splus.ir/life_m23</a>"
-                ),
-                reply_markup=MAIN_KEYBOARD
-            )
+        if message_id:  
 
-            return "ok"
+            delete_message(  
+                chat_id,  
+                message_id  
+            )  
 
-        return "ok"
+        send_message(  
+            chat_id,  
+            (  
+                "💬 <a href=\"http://splus.ir/PayamNashenasBot\">پیام ناشناس شعرکده</a>\n\n"  
+                "اگر پیشنهاد، انتقاد یا پیامی برای مدیر بات دارید، "  
+                "می‌توانید از طریق "  
+                "<a href=\"http://splus.ir/PayamNashenasBot\">پیام ناشناس شعرکده</a> "  
+                "با ما در ارتباط باشید.\n\n"  
+                "🔗 <a href=\"http://splus.ir/PayamNashenasBot\">http://splus.ir/PayamNashenasBot</a>"  
+            ),  
+            reply_markup=MAIN_KEYBOARD  
+        )  
 
-    except Exception as e:
-        print(
-            "[WEBHOOK] ERROR:",
-            e
-        )
+        return "ok"  
 
-        return "ok"
+    # ------------------------------  
+    # Poetry Channel  
+    # ------------------------------  
 
+    if text == "📣 کانال شعرکده":  
 
-# ==================================
-# Health Check
-# ==================================
+        if message_id:  
+
+            delete_message(  
+                chat_id,  
+                message_id  
+            )  
+
+        send_message(  
+            chat_id,  
+            (  
+                "📣 <a href=\"https://splus.ir/life_m23\">کانال شعرکده</a>\n\n"  
+                "برای ورود مستقیم به <a href=\"https://splus.ir/life_m23\">کانال شعرکده</a> "  
+                "از لینک زیر استفاده کنید.\n\n"  
+                "🔗 <a href=\"https://splus.ir/life_m23\">https://splus.ir/life_m23</a>"  
+            ),  
+            reply_markup=MAIN_KEYBOARD  
+        )  
+
+        return "ok"  
+
+    return "ok"  
+
+except Exception as e:  
+
+    print(  
+        "[WEBHOOK] ERROR:",  
+        e  
+    )  
+
+    return "ok"
+
+==================================
+
+Health Check
+
+==================================
 
 @app.route(
-    "/",
-    methods=["GET"]
+"/",
+methods=["GET"]
 )
 def health():
-    return "Hafez Bot is running."
 
+return "Hafez Bot is running."
 
-# ==================================
-# Webhook Setup
-# ==================================
+==================================
+
+Webhook Setup
+
+==================================
 
 def set_webhook():
-    print(
-        "[WEBHOOK] Setting webhook..."
-    )
 
-    result = splus_request(
-        "setWebhook",
-        data={
-            "url": WEBHOOK_URL
-        }
-    )
+print(  
+    "[WEBHOOK] Setting webhook..."  
+)  
 
-    print(
-        "[WEBHOOK] Result:",
-        result
-    )
+result = splus_request(  
+    "setWebhook",  
+    data={  
+        "url": WEBHOOK_URL  
+    }  
+)  
 
-    return result
+print(  
+    "[WEBHOOK] Result:",  
+    result  
+)  
 
+return result
 
 def webhook_setup_worker():
-    # کمی صبر می‌کنیم تا سرویس Flask/Render
-    # فرصت کافی برای بالا آمدن داشته باشد.
 
-    time.sleep(2)
+# کمی صبر می‌کنیم تا سرویس Flask/Render  
+# فرصت کافی برای بالا آمدن داشته باشد.  
 
-    try:
-        set_webhook()
+time.sleep(2)  
 
-    except Exception as e:
-        print(
-            "[WEBHOOK] Setup ERROR:",
-            e
-        )
+try:  
 
+    set_webhook()  
 
-# ==================================
-# Startup
-# ==================================
+except Exception as e:  
 
-try:
-    load_data()
-
-except Exception as e:
-    print(
-        "[STARTUP] DATA ERROR:",
-        e
+    print(  
+        "[WEBHOOK] Setup ERROR:",  
+        e  
     )
 
-    HAZALS = []
+==================================
 
+Startup
+
+==================================
 
 try:
-    load_interpretations()
+
+load_data()
 
 except Exception as e:
-    print(
-        "[STARTUP] TABIR ERROR:",
-        e
-    )
 
-    TABIR_MAP = {}
+print(  
+    "[STARTUP] DATA ERROR:",  
+    e  
+)  
 
+HAZALS = []
 
-# Webhook در Thread جداگانه تنظیم می‌شود
-# تا راه‌اندازی Flask را متوقف نکند.
+try:
+
+load_interpretations()
+
+except Exception as e:
+
+print(  
+    "[STARTUP] TABIR ERROR:",  
+    e  
+)  
+
+TABIR_MAP = {}
+
+Webhook در Thread جداگانه تنظیم می‌شود
+
+تا راه‌اندازی Flask را متوقف نکند.
 
 _webhook_thread = threading.Thread(
-    target=webhook_setup_worker,
-    daemon=True
+target=webhook_setup_worker,
+daemon=True
 )
 
 _webhook_thread.start()
 
+if name == "main":
 
-if __name__ == "__main__":
-    port = int(
-        os.environ.get(
-            "PORT",
-            10000
-        )
+port = int(  
+    os.environ.get(  
+        "PORT",  
+        10000  
+    )  
+)  
+
+app.run(  
+    host="0.0.0.0",  
+    port=port  
     )
-
-    app.run(
-        host="0.0.0.0",
-        port=port
-        )
