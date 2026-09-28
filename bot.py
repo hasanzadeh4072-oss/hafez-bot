@@ -528,11 +528,6 @@ def load_interpretations():
         start=1
     ):
 
-        # اگر فایل تعبیر شماره غزل داشته باشد،
-        # همان شماره ملاک قرار می‌گیرد.
-        # در ساختار فعلی فایل، در صورت نبود شماره،
-        # ترتیب رکوردها حفظ می‌شود.
-
         ghazal_number = None
 
         if isinstance(
@@ -895,6 +890,18 @@ def send_message(
     )
 
 
+def answer_callback_query(
+    callback_query_id
+):
+
+    return splus_request(
+        "answerCallbackQuery",
+        data={
+            "callback_query_id": callback_query_id
+        }
+    )
+
+
 # ==================================
 # Message Helpers
 # ==================================
@@ -1037,7 +1044,10 @@ def clean_poem(poem):
     return poem.strip()
 
 
-def format_fortune(record):
+def format_fortune(
+    record,
+    include_interpretation=False
+):
 
     number = get_ghazal_number(
         record
@@ -1059,20 +1069,25 @@ def format_fortune(record):
         f"شماره غزل {number}\n\n"
         f"{poem}\n\n"
         "────────────\n\n"
-        "🌌 تعبیر\n\n"
     )
 
-    if interpretation:
+    if include_interpretation:
 
         text += (
-            f"{interpretation}\n\n"
+            "🌌 تعبیر\n\n"
         )
 
-    else:
+        if interpretation:
 
-        text += (
-            "بات تعبیری برای این غزل ندارد.\n\n"
-        )
+            text += (
+                f"{interpretation}\n\n"
+            )
+
+        else:
+
+            text += (
+                "بات تعبیری برای این غزل ندارد.\n\n"
+            )
 
     # هشدار سرگرمی با فونت برجسته
 
@@ -1088,13 +1103,123 @@ def format_fortune(record):
     return text
 
 
+# ==================================
+# Fortune Inline Keyboard
+# ==================================
+
+def get_fortune_inline_keyboard(record):
+
+    interpretation = get_interpretation(
+        record
+    )
+
+    if not interpretation:
+
+        return None
+
+    number = get_ghazal_number(
+        record
+    )
+
+    return {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "🔮 نمایش تعبیر",
+                    "callback_data": f"hafez_tabir:{number}"
+                }
+            ]
+        ]
+    }
+
+
+# ==================================
+# Send Fortune
+# ==================================
+
 def send_fortune(
     chat_id,
     record
 ):
 
     text = format_fortune(
+        record,
+        include_interpretation=False
+    )
+
+    chunks = split_message(
+        text
+    )
+
+    results = []
+
+    inline_keyboard = get_fortune_inline_keyboard(
         record
+    )
+
+    for index, chunk in enumerate(chunks):
+
+        reply_markup = FORTUNE_KEYBOARD
+
+        # دکمه شیشه‌ای فقط روی آخرین بخش فال قرار می‌گیرد.
+        if index == len(chunks) - 1 and inline_keyboard:
+
+            reply_markup = {
+                **FORTUNE_KEYBOARD,
+                "inline_keyboard": inline_keyboard[
+                    "inline_keyboard"
+                ]
+            }
+
+        result = send_message(
+            chat_id,
+            chunk,
+            reply_markup=reply_markup
+        )
+
+        results.append(
+            result
+        )
+
+    return all(
+        api_success(result)
+        for result in results
+    )
+
+
+# ==================================
+# Show Interpretation
+# ==================================
+
+def show_interpretation(
+    chat_id,
+    number
+):
+
+    number = str(
+        number
+    ).strip()
+
+    interpretation = TABIR_MAP.get(
+        number
+    )
+
+    if not is_valid_interpretation(
+        interpretation
+    ):
+
+        return send_message(
+            chat_id,
+            "بات تعبیری برای این غزل ندارد.",
+            reply_markup=FORTUNE_KEYBOARD
+        )
+
+    text = (
+        "🌌 تعبیر\n\n"
+        f"{interpretation}\n\n"
+        "<b>توجه : فال و طالع‌بینی جنبه سرگرمی دارد و "
+        "پیشنهاد نمی‌شود بر اساس آن تصمیمی گرفته شود.</b>\n\n"
+        f"{CHANNEL_URL} 🌱"
     )
 
     chunks = split_message(
@@ -1114,8 +1239,6 @@ def send_fortune(
         results.append(
             result
         )
-
-    # فقط پاسخ واقعی API با ok=True موفق محسوب می‌شود
 
     return all(
         api_success(result)
@@ -1853,6 +1976,64 @@ def webhook():
         update = request.get_json(
             silent=True
         ) or {}
+
+        # ------------------------------
+        # Callback Query
+        # ------------------------------
+
+        callback_query = update.get(
+            "callback_query"
+        )
+
+        if callback_query:
+
+            callback_query_id = callback_query.get(
+                "id"
+            )
+
+            callback_data = str(
+                callback_query.get(
+                    "data",
+                    ""
+                )
+            ).strip()
+
+            callback_message = callback_query.get(
+                "message"
+            ) or {}
+
+            callback_chat = callback_message.get(
+                "chat"
+            ) or {}
+
+            callback_chat_id = callback_chat.get(
+                "id"
+            )
+
+            if callback_query_id:
+
+                answer_callback_query(
+                    callback_query_id
+                )
+
+            if (
+                callback_chat_id is not None
+                and callback_data.startswith(
+                    "hafez_tabir:"
+                )
+            ):
+
+                number = callback_data.split(
+                    ":",
+                    1
+                )[1].strip()
+
+                show_interpretation(
+                    callback_chat_id,
+                    number
+                )
+
+            return "ok"
 
         message = update.get(
             "message"
