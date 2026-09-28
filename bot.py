@@ -148,10 +148,6 @@ def get_audio_resolve_lock(source_url):
 # Fortune Per-Chat Locks
 # ==================================
 
-# هر کاربر/چت قفل مستقل خودش را دارد.
-# بنابراین دو فال همزمان برای یک چت اجرا نمی‌شود،
-# اما کاربران مختلف روی یکدیگر اثر نمی‌گذارند.
-
 _FORTUNE_LOCKS = {}
 _FORTUNE_LOCKS_GUARD = threading.Lock()
 
@@ -172,6 +168,36 @@ def get_fortune_lock(chat_id):
             ] = lock
 
         return lock
+
+
+# ==================================
+# Last Fortune / Interpretation
+# ==================================
+
+# آخرین غزل هر کاربر.
+# برای دکمه «🌌 تعبیر فال» استفاده می‌شود.
+LAST_FORTUNES = {}
+
+LAST_FORTUNES_LOCK = threading.RLock()
+
+
+def set_last_fortune(
+    chat_id,
+    record
+):
+    with LAST_FORTUNES_LOCK:
+        LAST_FORTUNES[
+            str(chat_id)
+        ] = record
+
+
+def get_last_fortune(
+    chat_id
+):
+    with LAST_FORTUNES_LOCK:
+        return LAST_FORTUNES.get(
+            str(chat_id)
+        )
 
 
 # ==================================
@@ -350,6 +376,11 @@ FORTUNE_KEYBOARD = {
     "keyboard": [
         [
             {
+                "text": "🌌 تعبیر فال"
+            }
+        ],
+        [
+            {
                 "text": "🌿 یک فال دیگر"
             }
         ],
@@ -490,11 +521,6 @@ def load_interpretations():
         data,
         start=1
     ):
-        # اگر فایل تعبیر شماره غزل داشته باشد،
-        # همان شماره ملاک قرار می‌گیرد.
-        # در ساختار فعلی فایل، در صورت نبود شماره،
-        # ترتیب رکوردها حفظ می‌شود.
-
         ghazal_number = None
 
         if isinstance(
@@ -976,36 +1002,11 @@ def format_fortune(record):
         )
     )
 
-    interpretation = get_interpretation(
-        record
-    )
-
     text = (
         "فال حافظ\n"
         f"شماره غزل {number}\n\n"
         f"{poem}\n\n"
-        "────────────\n\n"
-        "🌌 تعبیر\n\n"
-    )
-
-    if interpretation:
-        text += (
-            f"{interpretation}\n\n"
-        )
-
-    else:
-        text += (
-            "بات تعبیری برای این غزل ندارد.\n\n"
-        )
-
-    # هشدار سرگرمی با فونت برجسته
-    text += (
-        "<b>توجه : فال و طالع‌بینی جنبه سرگرمی دارد و "
-        "پیشنهاد نمی‌شود بر اساس آن تصمیمی گرفته شود.</b>\n\n"
-    )
-
-    text += (
-        f"{CHANNEL_URL} 🌱"
+        "────────────"
     )
 
     return text
@@ -1036,11 +1037,78 @@ def send_fortune(
             result
         )
 
-    # فقط پاسخ واقعی API با ok=True موفق محسوب می‌شود
     return all(
         api_success(result)
         for result in results
     )
+
+
+# ==================================
+# Send Interpretation
+# ==================================
+
+def send_interpretation(
+    chat_id,
+    record
+):
+    number = get_ghazal_number(
+        record
+    )
+
+    interpretation = get_interpretation(
+        record
+    )
+
+    print(
+        f"[TABIR] Requested for ghazal #{number}"
+    )
+
+    if not interpretation:
+        text = (
+            f"🌌 تعبیر غزل شماره {number}\n\n"
+            "برای این غزل هنوز تعبیر معتبری ثبت نشده است.\n\n"
+            "<b>توجه : فال و طالع‌بینی جنبه سرگرمی دارد و "
+            "پیشنهاد نمی‌شود بر اساس آن تصمیمی گرفته شود.</b>\n\n"
+            f"{CHANNEL_URL} 🌱"
+        )
+
+    else:
+        text = (
+            f"🌌 تعبیر غزل شماره {number}\n\n"
+            f"{interpretation}\n\n"
+            "<b>توجه : فال و طالع‌بینی جنبه سرگرمی دارد و "
+            "پیشنهاد نمی‌شود بر اساس آن تصمیمی گرفته شود.</b>\n\n"
+            f"{CHANNEL_URL} 🌱"
+        )
+
+    chunks = split_message(
+        text
+    )
+
+    results = []
+
+    for chunk in chunks:
+        result = send_message(
+            chat_id,
+            chunk,
+            reply_markup=FORTUNE_KEYBOARD
+        )
+
+        results.append(
+            result
+        )
+
+    success = all(
+        api_success(result)
+        for result in results
+    )
+
+    print(
+        f"[TABIR] Send result: "
+        f"{success}"
+    )
+
+    return success
 
 
 # ==================================
@@ -1587,9 +1655,6 @@ def process_fortune(
     chat_id,
     fortune_message_id
 ):
-    # قفل فقط برای همین chat_id است.
-    # کاربران دیگر می‌توانند همزمان فال بگیرند.
-
     fortune_lock = get_fortune_lock(
         chat_id
     )
@@ -1650,6 +1715,13 @@ def process_fortune(
         )
 
         if success:
+            # فقط وقتی فال با موفقیت ارسال شد،
+            # آن را به عنوان آخرین فال کاربر ذخیره می‌کنیم.
+            set_last_fortune(
+                chat_id,
+                record
+            )
+
             old_control = get_control_message(
                 chat_id
             )
@@ -1670,7 +1742,7 @@ def process_fortune(
                 chat_id
             )
 
-            # فقط بعد از ارسال موفق فال، صوت ارسال می‌شود.
+            # منطق صوت بدون تغییر
             send_audio(
                 chat_id,
                 record
@@ -1754,6 +1826,40 @@ def webhook():
                     chat_id,
                     message_id
                 )
+
+            return "ok"
+
+        # ------------------------------
+        # Interpretation
+        # ------------------------------
+
+        if text == "🌌 تعبیر فال":
+            if message_id:
+                delete_message(
+                    chat_id,
+                    message_id
+                )
+
+            last_fortune = get_last_fortune(
+                chat_id
+            )
+
+            if last_fortune is None:
+                send_message(
+                    chat_id,
+                    (
+                        "🌌 هنوز فالی برای تعبیر ندارید.\n\n"
+                        "ابتدا یک فال حافظ بگیرید."
+                    ),
+                    reply_markup=MAIN_KEYBOARD
+                )
+
+                return "ok"
+
+            send_interpretation(
+                chat_id,
+                last_fortune
+            )
 
             return "ok"
 
@@ -1963,9 +2069,6 @@ def set_webhook():
 
 
 def webhook_setup_worker():
-    # کمی صبر می‌کنیم تا سرویس Flask/Render
-    # فرصت کافی برای بالا آمدن داشته باشد.
-
     time.sleep(2)
 
     try:
@@ -2006,9 +2109,6 @@ except Exception as e:
     TABIR_MAP = {}
 
 
-# Webhook در Thread جداگانه تنظیم می‌شود
-# تا راه‌اندازی Flask را متوقف نکند.
-
 _webhook_thread = threading.Thread(
     target=webhook_setup_worker,
     daemon=True
@@ -2028,4 +2128,4 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=port
-        )
+    )
