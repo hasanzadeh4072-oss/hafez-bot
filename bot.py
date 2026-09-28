@@ -148,10 +148,6 @@ def get_audio_resolve_lock(source_url):
 # Fortune Per-Chat Locks
 # ==================================
 
-# هر کاربر/چت قفل مستقل خودش را دارد.
-# بنابراین دو فال همزمان برای یک چت اجرا نمی‌شود،
-# اما کاربران مختلف روی یکدیگر اثر نمی‌گذارند.
-
 _FORTUNE_LOCKS = {}
 _FORTUNE_LOCKS_GUARD = threading.Lock()
 
@@ -376,6 +372,27 @@ FORTUNE_KEYBOARD = {
 
 
 # ==================================
+# Inline Fortune Keyboard
+# ==================================
+
+def fortune_inline_keyboard(record):
+    number = get_ghazal_number(
+        record
+    )
+
+    return {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "🌌 تعبیر فال",
+                    "callback_data": f"tabir:{number}"
+                }
+            ]
+        ]
+    }
+
+
+# ==================================
 # Data
 # ==================================
 
@@ -490,11 +507,6 @@ def load_interpretations():
         data,
         start=1
     ):
-        # اگر فایل تعبیر شماره غزل داشته باشد،
-        # همان شماره ملاک قرار می‌گیرد.
-        # در ساختار فعلی فایل، در صورت نبود شماره،
-        # ترتیب رکوردها حفظ می‌شود.
-
         ghazal_number = None
 
         if isinstance(
@@ -832,6 +844,20 @@ def send_message(
     )
 
 
+def answer_callback_query(
+    callback_query_id
+):
+    if not callback_query_id:
+        return None
+
+    return splus_request(
+        "answerCallbackQuery",
+        data={
+            "callback_query_id": callback_query_id
+        }
+    )
+
+
 # ==================================
 # Message Helpers
 # ==================================
@@ -976,36 +1002,11 @@ def format_fortune(record):
         )
     )
 
-    interpretation = get_interpretation(
-        record
-    )
-
     text = (
         "فال حافظ\n"
         f"شماره غزل {number}\n\n"
         f"{poem}\n\n"
-        "────────────\n\n"
-        "🌌 تعبیر\n\n"
-    )
-
-    if interpretation:
-        text += (
-            f"{interpretation}\n\n"
-        )
-
-    else:
-        text += (
-            "بات تعبیری برای این غزل ندارد.\n\n"
-        )
-
-    # هشدار سرگرمی با فونت برجسته
-    text += (
-        "<b>توجه : فال و طالع‌بینی جنبه سرگرمی دارد و "
-        "پیشنهاد نمی‌شود بر اساس آن تصمیمی گرفته شود.</b>\n\n"
-    )
-
-    text += (
-        f"{CHANNEL_URL} 🌱"
+        "────────────"
     )
 
     return text
@@ -1025,6 +1026,75 @@ def send_fortune(
 
     results = []
 
+    for index, chunk in enumerate(
+        chunks
+    ):
+        # دکمه تعبیر فقط روی آخرین بخش فال قرار می‌گیرد.
+        if index == len(chunks) - 1:
+            reply_markup = fortune_inline_keyboard(
+                record
+            )
+        else:
+            reply_markup = None
+
+        result = send_message(
+            chat_id,
+            chunk,
+            reply_markup=reply_markup
+        )
+
+        results.append(
+            result
+        )
+
+    return all(
+        api_success(result)
+        for result in results
+    )
+
+
+# ==================================
+# Send Interpretation
+# ==================================
+
+def send_interpretation(
+    chat_id,
+    number
+):
+    number = str(
+        number
+    ).strip()
+
+    interpretation = TABIR_MAP.get(
+        number
+    )
+
+    if not is_valid_interpretation(
+        interpretation
+    ):
+        text = (
+            f"🌌 تعبیر غزل شماره {number}\n\n"
+            "برای این غزل هنوز تعبیر معتبری ثبت نشده است.\n\n"
+            "<b>توجه : فال و طالع‌بینی جنبه سرگرمی دارد و "
+            "پیشنهاد نمی‌شود بر اساس آن تصمیمی گرفته شود.</b>\n\n"
+            f"{CHANNEL_URL} 🌱"
+        )
+
+    else:
+        text = (
+            f"🌌 تعبیر غزل شماره {number}\n\n"
+            f"{interpretation}\n\n"
+            "<b>توجه : فال و طالع‌بینی جنبه سرگرمی دارد و "
+            "پیشنهاد نمی‌شود بر اساس آن تصمیمی گرفته شود.</b>\n\n"
+            f"{CHANNEL_URL} 🌱"
+        )
+
+    chunks = split_message(
+        text
+    )
+
+    results = []
+
     for chunk in chunks:
         result = send_message(
             chat_id,
@@ -1036,7 +1106,6 @@ def send_fortune(
             result
         )
 
-    # فقط پاسخ واقعی API با ok=True موفق محسوب می‌شود
     return all(
         api_success(result)
         for result in results
@@ -1587,9 +1656,6 @@ def process_fortune(
     chat_id,
     fortune_message_id
 ):
-    # قفل فقط برای همین chat_id است.
-    # کاربران دیگر می‌توانند همزمان فال بگیرند.
-
     fortune_lock = get_fortune_lock(
         chat_id
     )
@@ -1670,7 +1736,7 @@ def process_fortune(
                 chat_id
             )
 
-            # فقط بعد از ارسال موفق فال، صوت ارسال می‌شود.
+            # منطق صوت کاملاً بدون تغییر
             send_audio(
                 chat_id,
                 record
@@ -1687,6 +1753,75 @@ def process_fortune(
 
 
 # ==================================
+# Callback Query Processing
+# ==================================
+
+def process_callback_query(
+    callback_query
+):
+    callback_query_id = callback_query.get(
+        "id"
+    )
+
+    # پاسخ سریع به callback برای حذف حالت loading
+    answer_callback_query(
+        callback_query_id
+    )
+
+    data = str(
+        callback_query.get(
+            "data",
+            ""
+        )
+    ).strip()
+
+    message = (
+        callback_query.get("message")
+        or callback_query.get("origin_message")
+        or {}
+    )
+
+    chat = (
+        message.get("chat")
+        or {}
+    )
+
+    chat_id = chat.get(
+        "id"
+    )
+
+    if chat_id is None:
+        return
+
+    # ----------------------------------
+    # Interpretation Button
+    # ----------------------------------
+
+    if data.startswith(
+        "tabir:"
+    ):
+        number = data.split(
+            ":",
+            1
+        )[1].strip()
+
+        if not number:
+            return
+
+        print(
+            f"[TABIR] Callback requested "
+            f"for ghazal #{number}"
+        )
+
+        send_interpretation(
+            chat_id,
+            number
+        )
+
+        return
+
+
+# ==================================
 # Webhook
 # ==================================
 
@@ -1699,6 +1834,25 @@ def webhook():
         update = request.get_json(
             silent=True
         ) or {}
+
+        # ------------------------------
+        # Callback Query
+        # ------------------------------
+
+        callback_query = update.get(
+            "callback_query"
+        )
+
+        if callback_query:
+            process_callback_query(
+                callback_query
+            )
+
+            return "ok"
+
+        # ------------------------------
+        # Message
+        # ------------------------------
 
         message = (
             update.get("message")
@@ -1963,9 +2117,6 @@ def set_webhook():
 
 
 def webhook_setup_worker():
-    # کمی صبر می‌کنیم تا سرویس Flask/Render
-    # فرصت کافی برای بالا آمدن داشته باشد.
-
     time.sleep(2)
 
     try:
@@ -2006,9 +2157,6 @@ except Exception as e:
     TABIR_MAP = {}
 
 
-# Webhook در Thread جداگانه تنظیم می‌شود
-# تا راه‌اندازی Flask را متوقف نکند.
-
 _webhook_thread = threading.Thread(
     target=webhook_setup_worker,
     daemon=True
@@ -2028,4 +2176,4 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=port
-                    )
+        )
